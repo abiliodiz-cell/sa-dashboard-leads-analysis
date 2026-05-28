@@ -8,9 +8,10 @@ import {
   AdPerformanceChart, CampaignTable, OwnerTable,
   RegionChart, PlatformChart, StatusChart,
   FormAnswersPanel, LeadsTable,
+  LeadsHeatmap, ResponseTimeChart, CallsHourChart,
 } from "@/components/dashboard/Charts";
 
-// ── Colours ──────────────────────────────────────────────────────────────────
+// ── Colours ───────────────────────────────────────────────────────────────────
 const C = {
   navy:       "#0f2040",
   navyLight:  "#152a54",
@@ -50,13 +51,14 @@ const sectionLabel: CSSProperties = {
 // ── Layout constants ──────────────────────────────────────────────────────────
 const SIDEBAR_W = 230;
 const RANGES    = [{ label: "7d", days: 7 }, { label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "All", days: 9999 }];
-type Tab        = "overview" | "ads" | "agents" | "leads";
+type Tab        = "overview" | "ads" | "agents" | "leads" | "patterns";
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
-  { id: "overview", label: "Overview",          icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
-  { id: "ads",      label: "Ads & Campaigns",   icon: "M18 20V10M12 20V4M6 20v-6" },
-  { id: "agents",   label: "Agent Performance", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" },
-  { id: "leads",    label: "All Leads",         icon: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 0-2-2h2a2 2 0 0 0 2 2" },
+  { id: "overview",  label: "Overview",          icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
+  { id: "leads",     label: "All Leads",         icon: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 0-2-2h2a2 2 0 0 0 2 2" },
+  { id: "patterns",  label: "Patterns",          icon: "M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16" },
+  { id: "ads",       label: "Ads & Campaigns",   icon: "M18 20V10M12 20V4M6 20v-6" },
+  { id: "agents",    label: "Agent Performance", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" },
 ];
 
 function SvgIcon({ d, size = 16, color = "currentColor" }: { d: string; size?: number; color?: string }) {
@@ -68,13 +70,20 @@ function SvgIcon({ d, size = 16, color = "currentColor" }: { d: string; size?: n
   );
 }
 
+function fmtMinutes(m: number | null): string {
+  if (m == null) return "-";
+  if (m < 60)    return `${m}m`;
+  if (m < 1440)  return `${(m / 60).toFixed(1)}h`;
+  return `${(m / 1440).toFixed(1)}d`;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const [stats, setStats]           = useState<DashboardStats | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
-  const [days, setDays]             = useState(9999);
-  const [activeTab, setActiveTab]   = useState<Tab>("overview");
+  const [stats, setStats]             = useState<DashboardStats | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+  const [days, setDays]               = useState(9999);
+  const [activeTab, setActiveTab]     = useState<Tab>("overview");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
@@ -94,7 +103,7 @@ export default function DashboardPage() {
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: C.bg }}>
 
-      {/* ══ SIDEBAR ══════════════════════════════════════════════════════════ */}
+      {/* SIDEBAR */}
       <aside style={{
         width: SIDEBAR_W, minWidth: SIDEBAR_W,
         background: C.navy,
@@ -102,7 +111,6 @@ export default function DashboardPage() {
         borderRight: `1px solid ${C.navyBorder}`,
         overflow: "hidden",
       }}>
-        {/* Logo block */}
         <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${C.navyBorder}` }}>
           <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
             <Image src="/sa-logo-white.png" alt="Smith & Adams" width={120} height={40}
@@ -114,7 +122,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav style={{ flex: 1, padding: "16px 12px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#334155", padding: "4px 8px 10px" }}>Menu</div>
           {NAV.map((item) => {
@@ -126,9 +133,7 @@ export default function DashboardPage() {
                   padding: "10px 12px", borderRadius: 10, cursor: "pointer",
                   background: active ? "rgba(59,130,246,0.18)" : "transparent",
                   color: active ? "#60a5fa" : "#94a3b8",
-                  fontWeight: active ? 600 : 400,
-                  fontSize: 13,
-                  transition: "all 0.15s",
+                  fontWeight: active ? 600 : 400, fontSize: 13,
                   borderLeft: active ? "3px solid #3b82f6" : "3px solid transparent",
                 }}>
                 <SvgIcon d={item.icon} size={15} color={active ? "#60a5fa" : "#64748b"} />
@@ -138,15 +143,12 @@ export default function DashboardPage() {
           })}
         </nav>
 
-        {/* Sidebar footer */}
         <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.navyBorder}` }}>
-          <div style={{ fontSize: 11, color: "#334155", textAlign: "center", letterSpacing: "0.05em" }}>
-            Smith & Adams Group
-          </div>
+          <div style={{ fontSize: 11, color: "#334155", textAlign: "center", letterSpacing: "0.05em" }}>Smith & Adams Group</div>
         </div>
       </aside>
 
-      {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
+      {/* MAIN */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
 
         {/* Top bar */}
@@ -167,19 +169,17 @@ export default function DashboardPage() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {/* Range pills */}
             <div style={{ display: "flex", background: C.bg, borderRadius: 8, padding: 3, gap: 2, border: `1px solid ${C.border}` }}>
               {RANGES.map(r => (
                 <button key={r.days} onClick={() => setDays(r.days)} style={{
                   padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                  fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                  fontSize: 12, fontWeight: 600,
                   background: days === r.days ? C.blueLight : "transparent",
                   color:      days === r.days ? "white"     : C.textMuted,
                   fontFamily: "inherit",
                 }}>{r.label}</button>
               ))}
             </div>
-            {/* Refresh */}
             <button onClick={load} disabled={loading} style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
@@ -193,18 +193,16 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Scrollable content */}
+        {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
 
-          {/* Loading */}
           {loading && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300, gap: 16 }}>
               <div style={{ width: 36, height: 36, border: "3px solid rgba(59,130,246,0.15)", borderTopColor: C.blueLight, borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-              <p style={{ color: C.textMuted, fontSize: 13 }}>Fetching leads from Google Sheets...</p>
+              <p style={{ color: C.textMuted, fontSize: 13 }}>Fetching leads and enriching with Pipedrive data...</p>
             </div>
           )}
 
-          {/* Error */}
           {!loading && error && (
             <div style={{ ...card, maxWidth: 380, margin: "80px auto", textAlign: "center" }}>
               <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>Failed to load data</p>
@@ -213,47 +211,102 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Content */}
           {!loading && stats && (
             <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-              {/* ── OVERVIEW ── */}
+              {/* OVERVIEW */}
               {activeTab === "overview" && <>
-                {/* KPI Row */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-                  <KPICard label="Total Leads"  value={stats.totalLeads}         icon="leads"   color="blue"   delay={0}   />
-                  <KPICard label="Open Leads"   value={stats.openLeads}          icon="open"    color="teal"   delay={60}  />
-                  <KPICard label="Contact Rate" value={`${stats.contactRate}%`}  icon="contact" color="indigo"
-                    sub={stats.contactRate > 50 ? "Above 50%" : "Below 50%"} trend={stats.contactRate > 50 ? "up" : "down"} delay={120} />
-                  <KPICard label="Conversion"   value={`${stats.conversionRate}%`} icon="star"  color="green"
-                    sub={stats.conversionRate > 5 ? "Above avg" : "Tracking"} trend={stats.conversionRate > 5 ? "up" : "neutral"} delay={180} />
+                  <KPICard label="Total Leads"    value={stats.totalLeads}                     icon="leads"   color="blue"   delay={0}   />
+                  <KPICard label="Called"         value={`${stats.pctCalled}%`}                icon="contact" color="teal"   delay={60}
+                    sub={`${stats.leads.filter(l => l.was_called).length} of ${stats.totalLeads}`}
+                    trend={stats.pctCalled > 70 ? "up" : "down"} />
+                  <KPICard label="Answer Rate"    value={`${stats.callAnswerRate}%`}           icon="open"    color="indigo" delay={120}
+                    sub={stats.callAnswerRate > 50 ? "Above 50%" : "Below 50%"}
+                    trend={stats.callAnswerRate > 50 ? "up" : "down"} />
+                  <KPICard label="Avg Response"   value={fmtMinutes(stats.avgMinutesToFirstCall)} icon="star" color="green"  delay={180}
+                    sub="time to first call" />
                 </div>
 
-                {/* Timeline */}
                 <DateChart data={stats.byDate} />
 
-                {/* Row 2 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <HourChart    data={stats.byHour}    />
                   <WeekdayChart data={stats.byWeekday} />
                 </div>
 
-                {/* Row 3 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <RegionChart   data={stats.byRegion}   />
                   <PlatformChart data={stats.byPlatform} />
                 </div>
 
-                {/* Row 4 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <StatusChart      data={stats.byStatus}           />
                   <FormAnswersPanel data={stats.formAnswersSummary} />
                 </div>
               </>}
 
-              {/* ── ADS ── */}
+              {/* LEADS */}
+              {activeTab === "leads" && (
+                <LeadsTable data={stats.leads} />
+              )}
+
+              {/* PATTERNS */}
+              {activeTab === "patterns" && <>
+                {/* Summary row */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                  {[
+                    { label: "Most Common Hour",    value: (() => { const h = [...stats.byHour].sort((a,b) => b.count - a.count)[0]; return h ? `${h.hour}:00` : "-"; })() },
+                    { label: "Most Common Weekday", value: (() => { const d = [...stats.byWeekday].sort((a,b) => b.count - a.count)[0]; return d ? d.day.slice(0,3) : "-"; })() },
+                    { label: "Top Country",         value: stats.byRegion[0]?.region || "-" },
+                    { label: "Avg Response Time",   value: fmtMinutes(stats.avgMinutesToFirstCall) },
+                  ].map((kpi, i) => (
+                    <div key={i} style={{ ...card, textAlign: "center" }}>
+                      <p style={{ ...sectionLabel, marginBottom: 8 }}>{kpi.label}</p>
+                      <p style={{ fontSize: 28, fontWeight: 700, color: C.blue }}>{kpi.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <LeadsHeatmap data={stats.heatmap} />
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <HourChart    data={stats.byHour}    />
+                  <WeekdayChart data={stats.byWeekday} />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <ResponseTimeChart data={stats.responseTimeByCountry} />
+                  <CallsHourChart    data={stats.callsByHour}           />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <RegionChart data={stats.byRegion} />
+                  <div style={card}>
+                    <p style={sectionLabel}>Top Countries by Lead Volume</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {stats.byRegion.slice(0, 8).map((r, i) => {
+                        const pct = stats.totalLeads ? Math.round((r.count / stats.totalLeads) * 100) : 0;
+                        return (
+                          <div key={i}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4, fontWeight: 500 }}>
+                              <span style={{ color: C.textMid }}>{r.region}</span>
+                              <span style={{ fontFamily: "DM Mono, monospace", fontWeight: 700, color: C.blue }}>{r.count} <span style={{ color: C.textFaint, fontWeight: 400 }}>({pct}%)</span></span>
+                            </div>
+                            <div style={{ height: 7, borderRadius: 4, background: C.border }}>
+                              <div style={{ height: "100%", borderRadius: 4, width: `${pct}%`, background: C.blueLight, transition: "width 0.5s" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>}
+
+              {/* ADS */}
               {activeTab === "ads" && <>
-                <AdPerformanceChart data={stats.byAd}       />
+                <AdPerformanceChart data={stats.byAd} />
                 <CampaignTable      data={stats.byCampaign} />
                 <div style={card}>
                   <p style={sectionLabel}>Ad Detail</p>
@@ -261,7 +314,7 @@ export default function DashboardPage() {
                 </div>
               </>}
 
-              {/* ── AGENTS ── */}
+              {/* AGENTS */}
               {activeTab === "agents" && <>
                 <OwnerTable data={stats.byOwner} />
                 <div style={card}>
@@ -269,8 +322,8 @@ export default function DashboardPage() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     {stats.byOwner.map((agent, i) => {
                       const conv   = agent.leads ? (agent.converted / agent.leads) * 100 : 0;
-                      const openN  = stats.leads.filter(l => l.owner === agent.owner && ["open","new",""].includes(l.deal_status.toLowerCase())).length;
-                      const conPct = agent.leads ? ((agent.leads - openN) / agent.leads) * 100 : 0;
+                      const callPct = agent.leads ? (agent.called / agent.leads) * 100 : 0;
+                      const ansPct  = agent.called ? (agent.answered / agent.called) * 100 : 0;
                       return (
                         <div key={i} style={{ padding: 16, borderRadius: 10, background: "#f8fafc", border: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -278,13 +331,14 @@ export default function DashboardPage() {
                             <span style={{ fontSize: 12, background: "#dbeafe", color: "#1d4ed8", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>{agent.leads} leads</span>
                           </div>
                           {[
-                            { label: "Contacted", value: conPct, color: C.blueLight },
-                            { label: "Converted", value: conv,   color: C.green     },
+                            { label: "Called",    value: callPct, color: C.teal     },
+                            { label: "Answered",  value: ansPct,  color: C.indigo   },
+                            { label: "Converted", value: conv,    color: C.green     },
                           ].map(m => (
                             <div key={m.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                               <span style={{ fontSize: 12, color: C.textMuted, width: 80 }}>{m.label}</span>
                               <div style={{ flex: 1, height: 7, borderRadius: 4, background: C.border }}>
-                                <div style={{ height: "100%", borderRadius: 4, width: `${Math.min(m.value,100)}%`, background: m.color, transition: "width 0.5s ease" }} />
+                                <div style={{ height: "100%", borderRadius: 4, width: `${Math.min(m.value, 100)}%`, background: m.color, transition: "width 0.5s" }} />
                               </div>
                               <span style={{ fontSize: 12, fontFamily: "DM Mono, monospace", width: 36, textAlign: "right", fontWeight: 700, color: m.color }}>{m.value.toFixed(0)}%</span>
                             </div>
@@ -296,8 +350,6 @@ export default function DashboardPage() {
                 </div>
               </>}
 
-              {/* ── LEADS ── */}
-              {activeTab === "leads" && <LeadsTable data={stats.leads} />}
             </div>
           )}
         </div>

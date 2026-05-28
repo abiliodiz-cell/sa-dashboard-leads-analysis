@@ -1,9 +1,10 @@
 "use client";
+import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, CartesianGrid,
 } from "recharts";
-import { DashboardStats } from "@/lib/fusion";
+import { DashboardStats, EnrichedLead } from "@/lib/fusion";
 
 const BLUE   = "#3b82f6";
 const TEAL   = "#0891b2";
@@ -168,7 +169,7 @@ export function OwnerTable({ data }: { data: DashboardStats["byOwner"] }) {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["Agent", "Leads", "Converted", "Rate"].map(h => (
+            {["Agent", "Leads", "Called", "Answered", "Converted", "Rate"].map(h => (
               <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: MUTED, borderBottom: `2px solid ${BORDER}` }}>{h}</th>
             ))}
           </tr>
@@ -179,7 +180,9 @@ export function OwnerTable({ data }: { data: DashboardStats["byOwner"] }) {
             return (
               <tr key={i} style={{ borderBottom: `1px solid ${BORDER}` }}>
                 <td style={{ padding: "10px 12px", fontWeight: 600, color: "#0f172a" }}>{row.owner}</td>
-                <td style={{ padding: "10px 12px", fontWeight: 700, color: BLUE, fontFamily: "DM Mono, monospace" }}>{row.leads}</td>
+                <td style={{ padding: "10px 12px", fontWeight: 700, color: BLUE,  fontFamily: "DM Mono, monospace" }}>{row.leads}</td>
+                <td style={{ padding: "10px 12px", fontWeight: 700, color: TEAL,  fontFamily: "DM Mono, monospace" }}>{row.called}</td>
+                <td style={{ padding: "10px 12px", fontWeight: 700, color: INDIGO, fontFamily: "DM Mono, monospace" }}>{row.answered}</td>
                 <td style={{ padding: "10px 12px", fontWeight: 700, color: GREEN, fontFamily: "DM Mono, monospace" }}>{row.converted}</td>
                 <td style={{ padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -198,7 +201,7 @@ export function OwnerTable({ data }: { data: DashboardStats["byOwner"] }) {
   );
 }
 
-// ── DONUT (reused) ────────────────────────────────────────────────────────────
+// ── DONUT ─────────────────────────────────────────────────────────────────────
 function DonutCard({ title, data, nameKey, countKey }: { title: string; data: any[]; nameKey: string; countKey: string }) {
   const top   = data.slice(0, 7);
   const total = top.reduce((s: number, x: any) => s + x[countKey], 0);
@@ -319,57 +322,319 @@ export function FormAnswersPanel({ data }: { data: DashboardStats["formAnswersSu
   );
 }
 
-// ── LEADS TABLE ───────────────────────────────────────────────────────────────
-export function LeadsTable({ data }: { data: DashboardStats["leads"] }) {
-  const badgeStyle = (s: string): React.CSSProperties => {
-    const l = s.toLowerCase();
-    if (l.includes("won") || l.includes("convert")) return { background: "#dcfce7", color: "#15803d" };
-    if (l.includes("lost") || l.includes("cancel"))  return { background: "#fee2e2", color: "#dc2626" };
-    if (l.includes("open") || l.includes("new"))     return { background: "#dbeafe", color: "#1d4ed8" };
-    return { background: "#fef9c3", color: "#a16207" };
+// ── LEADS TABLE (paginated + searchable + sortable) ───────────────────────────
+const PAGE_SIZE = 25;
+
+type SortKey = "submitted_at" | "name" | "country" | "deal_stage" | "first_call_time" | "minutes_to_first_call";
+
+function fmtDT(iso: string | null | undefined): { date: string; time: string } {
+  if (!iso) return { date: "-", time: "-" };
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return { date: "-", time: "-" };
+  return {
+    date: d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" }),
+    time: d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
   };
+}
+
+function stageBadge(s: string): React.CSSProperties {
+  const l = (s || "").toLowerCase();
+  if (l.includes("won"))                                       return { background: "#dcfce7", color: "#15803d" };
+  if (l.includes("lost") || l.includes("cancel"))             return { background: "#fee2e2", color: "#dc2626" };
+  if (l.includes("qualif") || l.includes("presentation") || l.includes("negotiat") || l.includes("commitment")) return { background: "#dbeafe", color: "#1d4ed8" };
+  if (l.includes("contact"))                                  return { background: "#fef9c3", color: "#a16207" };
+  return { background: "#f1f5f9", color: "#475569" };
+}
+
+export function LeadsTable({ data }: { data: EnrichedLead[] }) {
+  const [search, setSearch] = useState("");
+  const [page,   setPage]   = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>("submitted_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return data.filter(l =>
+      !q ||
+      (l.name || "").toLowerCase().includes(q) ||
+      (l.email || "").toLowerCase().includes(q) ||
+      (l.country || "").toLowerCase().includes(q) ||
+      (l.ad_name || "").toLowerCase().includes(q) ||
+      (l.form_name || "").toLowerCase().includes(q) ||
+      (l.deal_stage || "").toLowerCase().includes(q)
+    );
+  }, [data, search]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let av: any = a[sortKey];
+      let bv: any = b[sortKey];
+      if (av == null) av = "";
+      if (bv == null) bv = "";
+      const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const pageData   = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+    setPage(0);
+  }
+
+  function SortArrow({ k }: { k: SortKey }) {
+    if (sortKey !== k) return <span style={{ color: "#cbd5e1", marginLeft: 3 }}>-</span>;
+    return <span style={{ marginLeft: 3 }}>{sortDir === "asc" ? "^" : "v"}</span>;
+  }
+
+  const thStyle: React.CSSProperties = {
+    textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 700,
+    letterSpacing: "0.1em", textTransform: "uppercase" as const, color: MUTED,
+    borderBottom: `2px solid ${BORDER}`, whiteSpace: "nowrap", cursor: "pointer",
+    userSelect: "none",
+  };
+
   return (
-    <div style={CARD}>
-      <Label>All Leads ({data.length})</Label>
+    <div style={{ ...CARD, padding: 0, overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <p style={{ ...LABEL, margin: 0, flex: "0 0 auto" }}>All Leads ({filtered.length}{search ? ` of ${data.length}` : ""})</p>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
+            placeholder="Search name, country, ad, status..."
+            style={{
+              width: "100%", padding: "7px 12px", borderRadius: 8, border: `1px solid ${BORDER}`,
+              fontSize: 13, fontFamily: "inherit", color: "#334155", outline: "none",
+              background: BG,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Table */}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr>
-              {["Name","Date","Platform","Campaign","Country","Owner","Status"].map(h => (
-                <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: MUTED, borderBottom: `2px solid ${BORDER}`, whiteSpace: "nowrap" }}>{h}</th>
-              ))}
+              <th style={thStyle} onClick={() => handleSort("name")}>Name <SortArrow k="name" /></th>
+              <th style={thStyle} onClick={() => handleSort("country")}>Country <SortArrow k="country" /></th>
+              <th style={{ ...thStyle, cursor: "default" }}>Form</th>
+              <th style={{ ...thStyle, cursor: "default" }}>Ad</th>
+              <th style={thStyle} onClick={() => handleSort("submitted_at")}>Form Date <SortArrow k="submitted_at" /></th>
+              <th style={{ ...thStyle, cursor: "default" }}>Time</th>
+              <th style={thStyle} onClick={() => handleSort("first_call_time")}>1st Call <SortArrow k="first_call_time" /></th>
+              <th style={{ ...thStyle, cursor: "default" }}>Call Time</th>
+              <th style={{ ...thStyle, cursor: "default" }}>Answered</th>
+              <th style={thStyle} onClick={() => handleSort("minutes_to_first_call")}>Response <SortArrow k="minutes_to_first_call" /></th>
+              <th style={thStyle} onClick={() => handleSort("deal_stage")}>Stage <SortArrow k="deal_stage" /></th>
             </tr>
           </thead>
           <tbody>
-            {data.slice(0, 200).map((lead, i) => {
-              const dt  = lead.submitted_at ? new Date(lead.submitted_at) : null;
-              const ds  = dt ? dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" }) : "-";
-              const bs  = badgeStyle(lead.deal_stage || "");
+            {pageData.map((lead, i) => {
+              const sub  = fmtDT(lead.submitted_at);
+              const call = fmtDT(lead.first_call_time);
+              const bs   = stageBadge(lead.deal_stage || "");
+              const mins = lead.minutes_to_first_call;
+              const respStr = mins == null ? "-" : mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
               return (
-                <tr key={i} style={{ borderBottom: `1px solid ${BORDER}`, transition: "background 0.1s" }}
+                <tr key={i}
+                  style={{ borderBottom: `1px solid ${BORDER}`, transition: "background 0.1s" }}
                   onMouseEnter={e => (e.currentTarget.style.background = BG)}
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  <td style={{ padding: "10px 12px", fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#0f172a" }}>{lead.name || "-"}</td>
-                  <td style={{ padding: "10px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, whiteSpace: "nowrap", color: MUTED }}>{ds}</td>
-                  <td style={{ padding: "10px 12px", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#334155" }}>{lead.platform || "-"}</td>
-                  <td style={{ padding: "10px 12px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#334155" }}>{lead.campaign_name || "-"}</td>
-                  <td style={{ padding: "10px 12px", color: "#334155" }}>{lead.country || "-"}</td>
-                  <td style={{ padding: "10px 12px", fontWeight: 600, color: BLUE }}>{lead.owner || "-"}</td>
-                  <td style={{ padding: "10px 12px" }}>
+                  <td style={{ padding: "9px 12px", fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#0f172a" }} title={lead.name}>{lead.name || "-"}</td>
+                  <td style={{ padding: "9px 12px", color: "#334155", whiteSpace: "nowrap" }}>{lead.country || "-"}</td>
+                  <td style={{ padding: "9px 12px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: MUTED, fontSize: 12 }} title={lead.form_name}>{lead.form_name || "-"}</td>
+                  <td style={{ padding: "9px 12px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#334155", fontSize: 12 }} title={lead.ad_name}>{lead.ad_name || "-"}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.date}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.time}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED, whiteSpace: "nowrap" }}>{call.date}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED, whiteSpace: "nowrap" }}>{call.time}</td>
+                  <td style={{ padding: "9px 12px", textAlign: "center" }}>
+                    {lead.was_called
+                      ? <span style={{ fontSize: 12, fontWeight: 700, color: lead.call_answered ? GREEN : ORANGE }}>{lead.call_answered ? "Yes" : "No answer"}</span>
+                      : <span style={{ fontSize: 12, color: MUTED }}>-</span>
+                    }
+                  </td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, fontWeight: 700, color: mins == null ? MUTED : mins < 120 ? GREEN : mins < 1440 ? YELLOW : DANGER, whiteSpace: "nowrap" }}>{respStr}</td>
+                  <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
                     <span style={{ ...bs, display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{lead.deal_stage || "-"}</span>
                   </td>
                 </tr>
               );
             })}
+            {pageData.length === 0 && (
+              <tr><td colSpan={11} style={{ padding: "32px 12px", textAlign: "center", color: MUTED }}>No leads found</td></tr>
+            )}
           </tbody>
         </table>
-        {data.length > 200 && <p style={{ textAlign: "center", marginTop: 12, fontSize: 12, color: MUTED }}>Showing 200 of {data.length} leads</p>}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 12, color: MUTED }}>
+            Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
+          </span>
+          <div style={{ display: "flex", gap: 4 }}>
+            <PagBtn onClick={() => setPage(0)}         disabled={page === 0}             label="First" />
+            <PagBtn onClick={() => setPage(p => p - 1)} disabled={page === 0}            label="Prev"  />
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const p = totalPages <= 7 ? i : Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
+              return (
+                <button key={p} onClick={() => setPage(p)} style={{
+                  padding: "5px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                  fontSize: 12, fontWeight: page === p ? 700 : 400, fontFamily: "inherit",
+                  background: page === p ? BLUE : "transparent",
+                  color:      page === p ? "white" : MUTED,
+                }}>{p + 1}</button>
+              );
+            })}
+            <PagBtn onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} label="Next"  />
+            <PagBtn onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} label="Last" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PagBtn({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      padding: "5px 10px", borderRadius: 6, border: "none", cursor: disabled ? "default" : "pointer",
+      fontSize: 12, fontFamily: "inherit", fontWeight: 500,
+      background: "transparent", color: disabled ? "#cbd5e1" : MUTED,
+    }}>{label}</button>
+  );
+}
+
+// ── HEATMAP: form fills by hour x weekday ─────────────────────────────────────
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function LeadsHeatmap({ data }: { data: DashboardStats["heatmap"] }) {
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+
+  // Build grid: day -> hour -> count
+  const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  data.forEach(d => { grid[d.weekday][d.hour] = d.count; });
+
+  return (
+    <div style={CARD}>
+      <Label>Lead Arrival Heatmap (Weekday x Hour)</Label>
+      <div style={{ overflowX: "auto" }}>
+        <div style={{ display: "inline-block", minWidth: 600 }}>
+          {/* Hour labels */}
+          <div style={{ display: "flex", marginLeft: 38 }}>
+            {Array.from({ length: 24 }, (_, h) => (
+              <div key={h} style={{ width: 26, textAlign: "center", fontSize: 9, color: MUTED, fontFamily: "DM Mono, monospace", flexShrink: 0 }}>
+                {h % 3 === 0 ? `${h}h` : ""}
+              </div>
+            ))}
+          </div>
+          {/* Rows */}
+          {DAYS_SHORT.map((day, w) => (
+            <div key={w} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
+              <div style={{ width: 34, fontSize: 11, color: MUTED, textAlign: "right", paddingRight: 6, fontWeight: 600 }}>{day}</div>
+              {Array.from({ length: 24 }, (_, h) => {
+                const count = grid[w][h];
+                const intensity = count / maxCount;
+                return (
+                  <div key={h} title={`${day} ${h}:00 - ${count} leads`}
+                    style={{
+                      width: 23, height: 20, margin: 1, borderRadius: 3, flexShrink: 0,
+                      background: count === 0
+                        ? "#f1f5f9"
+                        : `rgba(59,130,246,${0.15 + intensity * 0.85})`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 9, color: intensity > 0.5 ? "white" : MUTED,
+                      fontFamily: "DM Mono, monospace", cursor: "default",
+                    }}>
+                    {count > 0 ? count : ""}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Legend */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, justifyContent: "flex-end" }}>
+        <span style={{ fontSize: 10, color: MUTED }}>Low</span>
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map(v => (
+          <div key={v} style={{ width: 16, height: 16, borderRadius: 3, background: `rgba(59,130,246,${0.15 + v * 0.85})` }} />
+        ))}
+        <span style={{ fontSize: 10, color: MUTED }}>High</span>
       </div>
     </div>
   );
 }
 
-// Legacy
+// ── RESPONSE TIME BY COUNTRY ──────────────────────────────────────────────────
+export function ResponseTimeChart({ data }: { data: DashboardStats["responseTimeByCountry"] }) {
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => d.avgMinutes), 1);
+  const fmt = (m: number) => m < 60 ? `${m}m` : m < 1440 ? `${(m / 60).toFixed(1)}h` : `${(m / 1440).toFixed(1)}d`;
+  const color = (m: number) => m < 120 ? GREEN : m < 1440 ? YELLOW : DANGER;
+
+  return (
+    <div style={CARD}>
+      <Label>Avg Response Time by Country</Label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {data.map((r, i) => {
+          const pct = (r.avgMinutes / max) * 100;
+          const c   = color(r.avgMinutes);
+          return (
+            <div key={i}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+                <span style={{ fontWeight: 600, color: "#334155" }}>{r.country}</span>
+                <span style={{ fontFamily: "DM Mono, monospace", fontSize: 12, color: c, fontWeight: 700 }}>{fmt(r.avgMinutes)}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: BG }}>
+                <div style={{ height: "100%", borderRadius: 4, width: `${pct}%`, background: c, transition: "width 0.5s" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── CALL ANSWERED RATE BY HOUR ────────────────────────────────────────────────
+export function CallsHourChart({ data }: { data: DashboardStats["callsByHour"] }) {
+  const chartData = data.map(d => ({
+    hour: d.hour,
+    total: d.total,
+    rate: d.total ? Math.round((d.answered / d.total) * 100) : 0,
+  })).filter(d => d.total > 0);
+
+  if (!chartData.length) return null;
+
+  return (
+    <div style={CARD}>
+      <Label>Call Answer Rate by Hour</Label>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} barSize={9} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={BORDER} />
+          <XAxis dataKey="hour" tick={{ fill: MUTED, fontSize: 10 }} tickFormatter={h => `${h}h`}
+            axisLine={false} tickLine={false} interval={3} />
+          <YAxis tick={{ fill: MUTED, fontSize: 10 }} allowDecimals={false} axisLine={false} tickLine={false} />
+          <Tooltip {...TT} labelFormatter={h => `${h}:00`}
+            formatter={(v: any, name: any) => [v, name === "total" ? "Calls" : "Answered"]} />
+          <Bar dataKey="total"    name="total"    fill={`rgba(59,130,246,0.25)`} radius={[4, 4, 0, 0]} />
+          <Bar dataKey="answered" name="answered" fill={GREEN}                   radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── LEGACY STUBS ──────────────────────────────────────────────────────────────
 export function TimeToContactChart({ data }: { data: any }) { return null; }
 export function CallsByHourChart({ data }: { data: any }) { return null; }
 export function CallDispositionsChart({ data }: { data: any }) { return null; }
