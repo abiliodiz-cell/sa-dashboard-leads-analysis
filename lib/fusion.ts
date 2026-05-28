@@ -1,5 +1,6 @@
 import { SheetLead } from "./sheets";
 import { PipedriveEnrichment } from "./pipedrive";
+import { JCEnrichment } from "./justcall";
 
 export interface EnrichedLead {
   id: string;
@@ -71,12 +72,21 @@ function isOpen(s: string) { return OPEN_STATUSES.has(s.toLowerCase()); }
 
 export function fuseFromSheet(
   leads: SheetLead[],
-  enrichments?: Map<string, PipedriveEnrichment>
+  enrichments?: Map<string, PipedriveEnrichment>,
+  jcEnrichments?: Map<string, JCEnrichment>
 ): DashboardStats {
   const enriched: EnrichedLead[] = leads.map((l) => {
     const dt  = l.created_time ? new Date(l.created_time) : new Date();
     const ek  = l.email.toLowerCase().trim();
+    const pk  = l.phone.replace(/\D/g, "").slice(-9);
     const pd  = enrichments?.get(ek);
+    const jc  = pk ? jcEnrichments?.get(pk) : undefined;
+    // JustCall is preferred for call data (more accurate), Pipedrive as fallback
+    const callWasCalled         = jc?.wasCalled         ?? pd?.wasCalled         ?? false;
+    const callAnswered          = jc?.callAnswered       ?? pd?.callAnswered      ?? false;
+    const callFirstCallTime     = jc?.firstCallTime      ?? pd?.firstCallTime     ?? null;
+    const callFirstContactTime  = jc?.firstContactTime   ?? pd?.firstContactTime  ?? null;
+    const callMinutesToFirst    = jc?.minutesToFirstCall ?? pd?.minutesToFirstCall ?? undefined;
 
     return {
       id:                   l.id,
@@ -100,11 +110,11 @@ export function fuseFromSheet(
       deal_stage:           pd?.dealStage  || l.status || "",
       deal_status:          pd?.dealStatus || l.status || "",
       deal_value:           pd?.dealValue  || 0,
-      was_called:           pd?.wasCalled  ?? false,
-      call_answered:        pd?.callAnswered ?? false,
-      first_call_time:      pd?.firstCallTime ?? null,
-      first_contact_time:   pd?.firstContactTime ?? null,
-      minutes_to_first_call: pd?.minutesToFirstCall ?? undefined,
+      was_called:           callWasCalled,
+      call_answered:        callAnswered,
+      first_call_time:      callFirstCallTime,
+      first_contact_time:   callFirstContactTime,
+      minutes_to_first_call: callMinutesToFirst,
       lead_cost:            0,
     };
   });

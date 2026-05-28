@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSheetLeads } from "@/lib/sheets";
 import { fuseFromSheet } from "@/lib/fusion";
 import { getPipedriveEnrichments } from "@/lib/pipedrive";
+import { getJustCallEnrichments } from "@/lib/justcall";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,17 +17,25 @@ export async function GET(request: Request) {
 
     const leads = await getSheetLeads(since);
 
-    // Enrich with Pipedrive data - fail gracefully if unavailable
-    let enrichments;
-    try {
-      enrichments = await getPipedriveEnrichments(
-        leads.map(l => ({ email: l.email, phone: l.phone, created_time: l.created_time }))
-      );
-    } catch (pdErr) {
-      console.warn("Pipedrive enrichment failed (non-fatal):", pdErr);
-    }
+    const leadRefs = leads.map(l => ({
+      email:        l.email,
+      phone:        l.phone,
+      created_time: l.created_time,
+    }));
 
-    const stats = fuseFromSheet(leads, enrichments);
+    // Enrich from Pipedrive and JustCall in parallel - both fail gracefully
+    const [enrichments, jcEnrichments] = await Promise.all([
+      getPipedriveEnrichments(leadRefs).catch(err => {
+        console.warn("Pipedrive enrichment failed (non-fatal):", err?.message);
+        return undefined;
+      }),
+      getJustCallEnrichments(leadRefs).catch(err => {
+        console.warn("JustCall enrichment failed (non-fatal):", err?.message);
+        return undefined;
+      }),
+    ]);
+
+    const stats = fuseFromSheet(leads, enrichments, jcEnrichments);
     return NextResponse.json(stats);
   } catch (error: any) {
     console.error("Dashboard API error:", error);
