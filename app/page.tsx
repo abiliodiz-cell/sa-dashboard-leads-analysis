@@ -733,7 +733,7 @@ function AdDetailTable({ data }: { data: any[] }) {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["Ad Name", "Leads", "Contact Rate"].map(h => (
+            {["Campaign", "Ad Name", "Leads", "Contact Rate"].map(h => (
               <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#64748b", borderBottom: "2px solid #e2e8f0" }}>{h}</th>
             ))}
           </tr>
@@ -741,7 +741,8 @@ function AdDetailTable({ data }: { data: any[] }) {
         <tbody>
           {data.map((row, i) => (
             <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-              <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 500, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.ad_name}</td>
+              <td style={{ padding: "10px 12px", color: "#64748b", fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.campaign_name}>{row.campaign_name || "-"}</td>
+              <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 500, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.ad_name}>{row.ad_name}</td>
               <td style={{ padding: "10px 12px", color: "#3b82f6", fontWeight: 700, fontFamily: "DM Mono, monospace" }}>{row.leads}</td>
               <td style={{ padding: "10px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

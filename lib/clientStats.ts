@@ -59,15 +59,15 @@ export function computeStats(leads: EnrichedLead[]): DashboardStats {
   const byDate = Object.entries(dateMap).sort(([a],[b])=>a.localeCompare(b)).map(([date,count])=>({date,count}));
 
   // byAd
-  const adMap: Record<string,{leads:number;contacted:number}> = {};
+  const adMap: Record<string,{leads:number;contacted:number;campaign_name:string}> = {};
   leads.forEach(l => {
     const k=l.ad_name||"Unknown Ad";
-    if(!adMap[k]) adMap[k]={leads:0,contacted:0};
+    if(!adMap[k]) adMap[k]={leads:0,contacted:0,campaign_name:l.campaign_name||""};
     adMap[k].leads++;
     if(!isOpen(l.deal_status)) adMap[k].contacted++;
   });
   const byAd = Object.entries(adMap)
-    .map(([ad_name,v])=>({ad_name,leads:v.leads,spend:0,cpl:0,contact_rate:v.leads?Math.round(v.contacted/v.leads*100):0}))
+    .map(([ad_name,v])=>({ad_name,campaign_name:v.campaign_name,leads:v.leads,spend:0,cpl:0,contact_rate:v.leads?Math.round(v.contacted/v.leads*100):0}))
     .sort((a,b)=>b.leads-a.leads);
 
   // byCampaign

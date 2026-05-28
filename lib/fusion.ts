@@ -43,7 +43,7 @@ export interface DashboardStats {
   avgMinutesToFirstCall: number | null;
   byHour: { hour: number; count: number }[];
   byWeekday: { day: string; count: number }[];
-  byAd: { ad_name: string; leads: number; spend: number; cpl: number; contact_rate: number }[];
+  byAd: { ad_name: string; campaign_name: string; leads: number; spend: number; cpl: number; contact_rate: number }[];
   byCampaign: { campaign: string; leads: number; spend: number; cpl: number }[];
   byOwner: { owner: string; leads: number; called: number; answered: number; converted: number; avg_duration: number }[];
   byRegion: { region: string; count: number }[];
@@ -180,16 +180,16 @@ export function fuseFromSheet(
     .map(([date, count]) => ({ date, count }));
 
   // By Ad
-  const adMap: Record<string, { leads: number; contacted: number }> = {};
+  const adMap: Record<string, { leads: number; contacted: number; campaign_name: string }> = {};
   enriched.forEach(l => {
     const key = l.ad_name || "Unknown Ad";
-    if (!adMap[key]) adMap[key] = { leads: 0, contacted: 0 };
+    if (!adMap[key]) adMap[key] = { leads: 0, contacted: 0, campaign_name: l.campaign_name || "" };
     adMap[key].leads++;
     if (!isOpen(l.deal_status)) adMap[key].contacted++;
   });
   const byAd = Object.entries(adMap)
     .map(([ad_name, v]) => ({
-      ad_name, leads: v.leads, spend: 0, cpl: 0,
+      ad_name, campaign_name: v.campaign_name, leads: v.leads, spend: 0, cpl: 0,
       contact_rate: v.leads ? Math.round((v.contacted / v.leads) * 100) : 0,
     }))
     .sort((a, b) => b.leads - a.leads);
