@@ -1,7 +1,8 @@
 "use client";
 import Image from "next/image";
-import { useState, useEffect, useCallback, CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, CSSProperties } from "react";
 import { DashboardStats } from "@/lib/fusion";
+import { applyFilters, computeStats, Filters } from "@/lib/clientStats";
 import { KPICard } from "@/components/dashboard/KPICard";
 import {
   DateChart, HourChart, WeekdayChart,
@@ -30,7 +31,6 @@ const C = {
   textFaint:  "#94a3b8",
 };
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
 const card: CSSProperties = {
   background: C.surface,
   border: `1px solid ${C.border}`,
@@ -50,9 +50,7 @@ const sectionLabel: CSSProperties = {
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const SIDEBAR_W = 230;
-const RANGES    = [{ label: "7d", days: 7 }, { label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "All", days: 9999 }];
-const DEFAULT_DAYS = 30; // default to last 30 days
-type Tab        = "overview" | "ads" | "agents" | "leads" | "patterns";
+type Tab = "overview" | "ads" | "agents" | "leads" | "patterns";
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "overview",  label: "Overview",          icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
@@ -61,6 +59,30 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "ads",       label: "Ads & Campaigns",   icon: "M18 20V10M12 20V4M6 20v-6" },
   { id: "agents",    label: "Agent Performance", icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" },
 ];
+
+const QUICK_RANGES = [
+  { label: "7d",  days: 7 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+  { label: "All", days: 0 },
+];
+
+function presetDateFrom(days: number): string {
+  if (days === 0) return "";
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function detectPreset(dateFrom: string, dateTo: string): number | null {
+  if (!dateTo) {
+    if (!dateFrom) return 0;
+    for (const r of QUICK_RANGES) {
+      if (r.days > 0 && presetDateFrom(r.days) === dateFrom) return r.days;
+    }
+  }
+  return null;
+}
 
 function SvgIcon({ d, size = 16, color = "currentColor" }: { d: string; size?: number; color?: string }) {
   return (
@@ -78,28 +100,138 @@ function fmtMinutes(m: number | null): string {
   return `${(m / 1440).toFixed(1)}d`;
 }
 
+// ── Multi-select dropdown ─────────────────────────────────────────────────────
+function MultiSelect({
+  label, options, value, onChange,
+}: {
+  label: string; options: string[]; value: string[]; onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const toggle = (v: string) =>
+    onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
+
+  const display = value.length === 0
+    ? `All ${label}s`
+    : value.length === 1
+      ? (value[0] || "(unassigned)")
+      : `${value.length} ${label}s`;
+
+  const active = value.length > 0;
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        display: "flex", alignItems: "center", gap: 6,
+        padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+        border: `1px solid ${active ? C.blueLight : C.border}`,
+        background: active ? "#eff6ff" : C.surface,
+        color: active ? C.blue : C.textMuted,
+        fontSize: 12, fontWeight: 500, fontFamily: "inherit", whiteSpace: "nowrap",
+        minWidth: 110,
+      }}>
+        <span style={{ flex: 1, textAlign: "left" }}>{display}</span>
+        <SvgIcon d="M6 9l6 6 6-6" size={11} color={active ? C.blue : C.textMuted} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200,
+          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.13)", minWidth: 180, maxHeight: 260, overflowY: "auto",
+        }}>
+          <div style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>
+            <button onClick={() => { onChange([]); setOpen(false); }} style={{
+              width: "100%", textAlign: "left", padding: "6px 10px", borderRadius: 6,
+              background: value.length === 0 ? "#eff6ff" : "transparent",
+              border: "none", cursor: "pointer", fontSize: 12,
+              color: value.length === 0 ? C.blue : C.textMid,
+              fontFamily: "inherit", fontWeight: value.length === 0 ? 600 : 400,
+            }}>All {label}s</button>
+          </div>
+          <div style={{ padding: "6px 8px" }}>
+            {options.map(opt => (
+              <label key={opt} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "5px 10px", borderRadius: 6, cursor: "pointer",
+                background: value.includes(opt) ? "#f0f9ff" : "transparent",
+              }}>
+                <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)}
+                  style={{ accentColor: C.blue, cursor: "pointer" }} />
+                <span style={{ fontSize: 12, color: C.textMid }}>{opt || "(unassigned)"}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [stats, setStats]             = useState<DashboardStats | null>(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [days, setDays]               = useState(DEFAULT_DAYS);
   const [activeTab, setActiveTab]     = useState<Tab>("overview");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+  // Filter state - default to last 30 days
+  const [dateFrom, setDateFrom] = useState(() => presetDateFrom(30));
+  const [dateTo,   setDateTo]   = useState("");
+  const [selCountries, setSelCountries] = useState<string[]>([]);
+  const [selAgents,    setSelAgents]    = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`/api/dashboard?days=${days}`);
+      const res = await fetch(`/api/dashboard?days=9999`);
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setStats(data); setLastRefresh(new Date());
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
-  }, [days]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Available filter options from the full (unfiltered) dataset
+  const availableCountries = useMemo(() => {
+    if (!stats) return [];
+    return [...new Set(stats.leads.map(l => l.country).filter(Boolean))].sort();
+  }, [stats]);
+
+  const availableAgents = useMemo(() => {
+    if (!stats) return [];
+    return [...new Set(stats.leads.map(l => l.owner).filter(Boolean))].sort();
+  }, [stats]);
+
+  // Client-side filtered + re-aggregated stats
+  const filteredStats = useMemo((): DashboardStats | null => {
+    if (!stats) return null;
+    const f: Filters = { dateFrom, dateTo, countries: selCountries, agents: selAgents };
+    return computeStats(applyFilters(stats.leads, f));
+  }, [stats, dateFrom, dateTo, selCountries, selAgents]);
+
+  const curPreset = detectPreset(dateFrom, dateTo);
+
+  const hasActiveFilters = dateFrom || dateTo || selCountries.length > 0 || selAgents.length > 0;
+
+  function clearFilters() {
+    setDateFrom(""); setDateTo(""); setSelCountries([]); setSelAgents([]);
+  }
+
+  const d = filteredStats ?? stats;
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: C.bg }}>
@@ -154,36 +286,28 @@ export default function DashboardPage() {
 
         {/* Top bar */}
         <div style={{
-          height: 60, background: C.surface, borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 24px", flexShrink: 0,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+          background: C.surface, borderBottom: `1px solid ${C.border}`,
+          flexShrink: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
         }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>
-              {NAV.find(n => n.id === activeTab)?.label}
-            </div>
-            {lastRefresh && (
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 1 }}>
-                Last updated: {lastRefresh.toLocaleTimeString("en-GB")}
+          {/* Title row */}
+          <div style={{
+            height: 56, display: "flex", alignItems: "center",
+            justifyContent: "space-between", padding: "0 24px",
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>
+                {NAV.find(n => n.id === activeTab)?.label}
               </div>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ display: "flex", background: C.bg, borderRadius: 8, padding: 3, gap: 2, border: `1px solid ${C.border}` }}>
-              {RANGES.map(r => (
-                <button key={r.days} onClick={() => setDays(r.days)} style={{
-                  padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                  fontSize: 12, fontWeight: 600,
-                  background: days === r.days ? C.blueLight : "transparent",
-                  color:      days === r.days ? "white"     : C.textMuted,
-                  fontFamily: "inherit",
-                }}>{r.label}</button>
-              ))}
+              {lastRefresh && (
+                <div style={{ fontSize: 11, color: C.textFaint, marginTop: 1 }}>
+                  Updated: {lastRefresh.toLocaleTimeString("en-GB")}
+                  {d && <span style={{ marginLeft: 6, color: C.blue, fontWeight: 600 }}>{d.totalLeads} leads shown</span>}
+                </div>
+              )}
             </div>
             <button onClick={load} disabled={loading} style={{
               display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
+              padding: "7px 16px", borderRadius: 8, border: "none", cursor: "pointer",
               background: C.blueLight, color: "white", fontSize: 12, fontWeight: 600,
               fontFamily: "inherit", opacity: loading ? 0.6 : 1,
             }}>
@@ -191,6 +315,80 @@ export default function DashboardPage() {
                 size={13} color="white" />
               {loading ? "Loading..." : "Refresh"}
             </button>
+          </div>
+
+          {/* Filter bar */}
+          <div style={{
+            height: 50, display: "flex", alignItems: "center", gap: 10,
+            padding: "0 24px", borderTop: `1px solid ${C.border}`,
+            background: "#fafbfc", overflowX: "auto",
+          }}>
+            {/* Quick presets */}
+            <div style={{ display: "flex", background: C.bg, borderRadius: 8, padding: 3, gap: 2, border: `1px solid ${C.border}`, flexShrink: 0 }}>
+              {QUICK_RANGES.map(r => {
+                const active = curPreset === r.days;
+                return (
+                  <button key={r.days} onClick={() => { setDateFrom(presetDateFrom(r.days)); setDateTo(""); }} style={{
+                    padding: "4px 13px", borderRadius: 6, border: "none", cursor: "pointer",
+                    fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                    background: active ? C.blueLight : "transparent",
+                    color:      active ? "white"     : C.textMuted,
+                  }}>{r.label}</button>
+                );
+              })}
+            </div>
+
+            {/* Divider */}
+            <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
+
+            {/* Date inputs */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>From</span>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{
+                padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.border}`,
+                fontSize: 12, color: C.text, background: C.surface, fontFamily: "inherit", cursor: "pointer",
+              }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>To</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{
+                padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.border}`,
+                fontSize: 12, color: C.text, background: C.surface, fontFamily: "inherit", cursor: "pointer",
+              }} />
+            </div>
+
+            {/* Divider */}
+            <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
+
+            {/* Country */}
+            <MultiSelect
+              label="Country"
+              options={availableCountries}
+              value={selCountries}
+              onChange={setSelCountries}
+            />
+
+            {/* Agent */}
+            <MultiSelect
+              label="Agent"
+              options={availableAgents}
+              value={selAgents}
+              onChange={setSelAgents}
+            />
+
+            {/* Clear */}
+            {hasActiveFilters && (
+              <button onClick={clearFilters} style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 11px", borderRadius: 8, cursor: "pointer",
+                border: `1px solid #fca5a5`, background: "#fff1f2",
+                color: "#dc2626", fontSize: 12, fontWeight: 500, fontFamily: "inherit",
+                flexShrink: 0,
+              }}>
+                <SvgIcon d="M18 6L6 18M6 6l12 12" size={11} color="#dc2626" />
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
@@ -213,63 +411,63 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {!loading && stats && (
+          {!loading && d && (
             <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
               {/* OVERVIEW */}
               {activeTab === "overview" && <>
-                {/* Data range info */}
-                {stats.byDate.length > 0 && (
+                {stats && stats.byDate.length > 0 && (
                   <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 16px", fontSize: 12, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 8 }}>
                     <SvgIcon d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={14} color="#3b82f6" />
-                    <span>Data in Google Sheet: <strong>{stats.byDate[0]?.date}</strong> to <strong>{stats.byDate[stats.byDate.length-1]?.date}</strong> - {stats.totalLeads} leads.
-                    {" "}If you need more recent data, check that Make is syncing correctly to the sheet.</span>
+                    <span>
+                      Sheet data: <strong>{stats.byDate[0]?.date}</strong> to <strong>{stats.byDate[stats.byDate.length-1]?.date}</strong> ({stats.totalLeads} total leads).
+                      {" "}Showing <strong>{d.totalLeads}</strong> leads after current filters.
+                    </span>
                   </div>
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-                  <KPICard label="Total Leads"    value={stats.totalLeads}                     icon="leads"   color="blue"   delay={0}   />
-                  <KPICard label="Called"         value={`${stats.pctCalled}%`}                icon="contact" color="teal"   delay={60}
-                    sub={`${stats.leads.filter(l => l.was_called).length} of ${stats.totalLeads}`}
-                    trend={stats.pctCalled > 70 ? "up" : "down"} />
-                  <KPICard label="Answer Rate"    value={`${stats.callAnswerRate}%`}           icon="open"    color="indigo" delay={120}
-                    sub={stats.callAnswerRate > 50 ? "Above 50%" : "Below 50%"}
-                    trend={stats.callAnswerRate > 50 ? "up" : "down"} />
-                  <KPICard label="Avg Response"   value={fmtMinutes(stats.avgMinutesToFirstCall)} icon="star" color="green"  delay={180}
+                  <KPICard label="Total Leads"    value={d.totalLeads}                     icon="leads"   color="blue"   delay={0}   />
+                  <KPICard label="Called"         value={`${d.pctCalled}%`}                icon="contact" color="teal"   delay={60}
+                    sub={`${d.leads.filter(l => l.was_called).length} of ${d.totalLeads}`}
+                    trend={d.pctCalled > 70 ? "up" : "down"} />
+                  <KPICard label="Answer Rate"    value={`${d.callAnswerRate}%`}           icon="open"    color="indigo" delay={120}
+                    sub={d.callAnswerRate > 50 ? "Above 50%" : "Below 50%"}
+                    trend={d.callAnswerRate > 50 ? "up" : "down"} />
+                  <KPICard label="Avg Response"   value={fmtMinutes(d.avgMinutesToFirstCall)} icon="star" color="green"  delay={180}
                     sub="time to first call" />
                 </div>
 
-                <DateChart data={stats.byDate} />
+                <DateChart data={d.byDate} />
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <HourChart    data={stats.byHour}    />
-                  <WeekdayChart data={stats.byWeekday} />
+                  <HourChart    data={d.byHour}    />
+                  <WeekdayChart data={d.byWeekday} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <RegionChart   data={stats.byRegion}   />
-                  <PlatformChart data={stats.byPlatform} />
+                  <RegionChart   data={d.byRegion}   />
+                  <PlatformChart data={d.byPlatform} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <StatusChart      data={stats.byStatus}           />
-                  <FormAnswersPanel data={stats.formAnswersSummary} />
+                  <StatusChart      data={d.byStatus}           />
+                  <FormAnswersPanel data={d.formAnswersSummary} />
                 </div>
               </>}
 
               {/* LEADS */}
               {activeTab === "leads" && (
-                <LeadsTable data={stats.leads} />
+                <LeadsTable data={d.leads} />
               )}
 
               {/* PATTERNS */}
               {activeTab === "patterns" && <>
-                {/* Summary row */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
                   {[
-                    { label: "Most Common Hour",    value: (() => { const h = [...stats.byHour].sort((a,b) => b.count - a.count)[0]; return h ? `${h.hour}:00` : "-"; })() },
-                    { label: "Most Common Weekday", value: (() => { const d = [...stats.byWeekday].sort((a,b) => b.count - a.count)[0]; return d ? d.day.slice(0,3) : "-"; })() },
-                    { label: "Top Country",         value: stats.byRegion[0]?.region || "-" },
-                    { label: "Avg Response Time",   value: fmtMinutes(stats.avgMinutesToFirstCall) },
+                    { label: "Most Common Hour",    value: (() => { const h = [...d.byHour].sort((a,b) => b.count - a.count)[0]; return h ? `${h.hour}:00` : "-"; })() },
+                    { label: "Most Common Weekday", value: (() => { const wd = [...d.byWeekday].sort((a,b) => b.count - a.count)[0]; return wd ? wd.day.slice(0,3) : "-"; })() },
+                    { label: "Top Country",         value: d.byRegion[0]?.region || "-" },
+                    { label: "Avg Response Time",   value: fmtMinutes(d.avgMinutesToFirstCall) },
                   ].map((kpi, i) => (
                     <div key={i} style={{ ...card, textAlign: "center" }}>
                       <p style={{ ...sectionLabel, marginBottom: 8 }}>{kpi.label}</p>
@@ -278,25 +476,25 @@ export default function DashboardPage() {
                   ))}
                 </div>
 
-                <LeadsHeatmap data={stats.heatmap} />
+                <LeadsHeatmap data={d.heatmap} />
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <HourChart    data={stats.byHour}    />
-                  <WeekdayChart data={stats.byWeekday} />
+                  <HourChart    data={d.byHour}    />
+                  <WeekdayChart data={d.byWeekday} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <ResponseTimeChart data={stats.responseTimeByCountry} />
-                  <CallsHourChart    data={stats.callsByHour}           />
+                  <ResponseTimeChart data={d.responseTimeByCountry} />
+                  <CallsHourChart    data={d.callsByHour}           />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <RegionChart data={stats.byRegion} />
+                  <RegionChart data={d.byRegion} />
                   <div style={card}>
                     <p style={sectionLabel}>Top Countries by Lead Volume</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {stats.byRegion.slice(0, 8).map((r, i) => {
-                        const pct = stats.totalLeads ? Math.round((r.count / stats.totalLeads) * 100) : 0;
+                      {d.byRegion.slice(0, 8).map((r, i) => {
+                        const pct = d.totalLeads ? Math.round((r.count / d.totalLeads) * 100) : 0;
                         return (
                           <div key={i}>
                             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4, fontWeight: 500 }}>
@@ -316,22 +514,22 @@ export default function DashboardPage() {
 
               {/* ADS */}
               {activeTab === "ads" && <>
-                <AdPerformanceChart data={stats.byAd} />
-                <CampaignTable      data={stats.byCampaign} />
+                <AdPerformanceChart data={d.byAd} />
+                <CampaignTable      data={d.byCampaign} />
                 <div style={card}>
                   <p style={sectionLabel}>Ad Detail</p>
-                  <AdDetailTable data={stats.byAd} />
+                  <AdDetailTable data={d.byAd} />
                 </div>
               </>}
 
               {/* AGENTS */}
               {activeTab === "agents" && <>
-                <OwnerTable data={stats.byOwner} />
+                <OwnerTable data={d.byOwner} />
                 <div style={card}>
                   <p style={sectionLabel}>Agent Conversion Funnel</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {stats.byOwner.map((agent, i) => {
-                      const conv   = agent.leads ? (agent.converted / agent.leads) * 100 : 0;
+                    {d.byOwner.map((agent, i) => {
+                      const conv    = agent.leads ? (agent.converted / agent.leads) * 100 : 0;
                       const callPct = agent.leads ? (agent.called / agent.leads) * 100 : 0;
                       const ansPct  = agent.called ? (agent.answered / agent.called) * 100 : 0;
                       return (
@@ -341,9 +539,9 @@ export default function DashboardPage() {
                             <span style={{ fontSize: 12, background: "#dbeafe", color: "#1d4ed8", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>{agent.leads} leads</span>
                           </div>
                           {[
-                            { label: "Called",    value: callPct, color: C.teal     },
-                            { label: "Answered",  value: ansPct,  color: C.indigo   },
-                            { label: "Converted", value: conv,    color: C.green     },
+                            { label: "Called",    value: callPct, color: C.teal   },
+                            { label: "Answered",  value: ansPct,  color: C.indigo },
+                            { label: "Converted", value: conv,    color: C.green  },
                           ].map(m => (
                             <div key={m.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                               <span style={{ fontSize: 12, color: C.textMuted, width: 80 }}>{m.label}</span>
