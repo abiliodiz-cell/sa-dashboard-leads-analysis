@@ -1,39 +1,47 @@
-const JC_KEY    = process.env.JUSTCALL_API_KEY    || "a0446b0c0f435eec2819f66afdd74da1cba334e0";
-const JC_SECRET = process.env.JUSTCALL_API_SECRET || "8d25832a131e74eb5f22692b17ba63e3fc964503";
+const JC_KEY    = process.env.JUSTCALL_API_KEY    || "124efc5c98d2228b11bd7b268cfb8bc04b9ba13b";
+const JC_SECRET = process.env.JUSTCALL_API_SECRET || "36a55928b9b30ac64f75ec98c4c744d103086d03";
 const BASE      = "https://api.justcall.io/v2";
 
-interface JCCall {
-  id: number | string;
-  contact_number: string;  // phone number of the contact
-  contact_name?: string;
-  call_date: string;       // ISO or unix timestamp
-  direction: number | string;  // 1=inbound, 2=outbound, or "inbound"/"outbound"
-  duration: number;        // seconds
-  call_status: string;     // answered, missed, voicemail, busy, failed
-  agent_name?: string;
-  notes?: string;
+// Basic auth: base64(key:secret)
+function authHeader(): string {
+  const token = Buffer.from(`${JC_KEY}:${JC_SECRET}`).toString("base64");
+  return `Basic ${token}`;
 }
 
-interface JCSms {
-  id: number | string;
+interface JCCall {
+  id: number;
   contact_number: string;
-  message_date: string;
-  direction: number | string;
+  contact_email: string;
+  call_date: string;        // "YYYY-MM-DD"
+  call_time: string;        // "HH:MM:SS"
   agent_name?: string;
+  cost_incurred?: number;
+  call_info: {
+    direction: string;      // "Outgoing" | "Incoming"
+    type: string;           // "answered" | "missed" | "voicemail" | ...
+  };
+  call_duration: {
+    total_duration: number; // seconds
+  };
+}
+
+interface JCText {
+  id: number;
+  contact_number: string;
+  contact_email: string;
+  sms_date: string;         // "YYYY-MM-DD"
+  sms_time: string;         // "HH:MM:SS"
+  direction: string;        // "Outgoing" | "Incoming"
 }
 
 export interface JCEnrichment {
   wasCalled: boolean;
   callAnswered: boolean;
-  firstCallTime: string | null;
-  firstContactTime: string | null;
+  firstCallTime: string | null;     // ISO
+  firstContactTime: string | null;  // ISO - earliest call or SMS
   minutesToFirstCall: number | null;
   totalCalls: number;
-  lastCallStatus: string;
-}
-
-function normPhone(p: string): string {
-  return p.replace(/\D/g, "").slice(-9);
+  agentName: string;
 }
 
 async function jcFetch<T>(path: string): Promise<T[]> {
@@ -41,125 +49,149 @@ async function jcFetch<T>(path: string): Promise<T[]> {
   let page = 1;
   const perPage = 100;
 
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const url = `${BASE}${path}${path.includes("?") ? "&" : "?"}per_page=${perPage}&page=${page}`;
-    const res  = await fetch(url, {
+  for (let i = 0; i < 100; i++) {
+    const sep = path.includes("?") ? "&" : "?";
+    const url = `${BASE}${path}${sep}per_page=${perPage}&page=${page}`;
+    const res = await fetch(url, {
       cache: "no-store",
       headers: {
-        "apikey":    JC_KEY,
-        "apisecret": JC_SECRET,
-        "Accept":    "application/json",
+        "Authorization": authHeader(),
+        "Accept": "application/json",
       },
     });
 
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`JustCall API error ${res.status}: ${body.slice(0, 200)}`);
+      throw new Error(`JustCall HTTP ${res.status} at ${path}`);
     }
 
     const json = await res.json();
     if (json.status === "failed") {
-      throw new Error(`JustCall API: ${json.message}`);
+      throw new Error(`JustCall: ${json.message}`);
     }
 
-    // v2 response shape: { status, data: { count, has_next, data: [...] } }
-    const rows: T[] = json?.data?.data || json?.data || [];
-    if (!Array.isArray(rows) || rows.length === 0) break;
+    const rows: T[] = Array.isArray(json.data) ? json.data : [];
+    if (!rows.length) break;
     items.push(...rows);
 
-    const hasNext = json?.data?.has_next;
-    if (!hasNext) break;
+    // Paginate: check if next page exists
+    const fetched = page * perPage;
+    if (fetched >= (json.total_count || 0)) break;
     page++;
   }
   return items;
 }
 
-function parseDate(val: string | number | undefined): Date | null {
-  if (!val) return null;
-  const d = typeof val === "number" ? new Date(val * 1000) : new Date(val);
-  return isNaN(d.getTime()) ? null : d;
+function normEmail(e: string): string {
+  return (e || "").toLowerCase().trim();
+}
+function normPhone(p: string): string {
+  return (p || "").replace(/\D/g, "").slice(-9);
+}
+function toISO(date: string, time: string): string {
+  if (!date) return "";
+  return `${date}T${time || "00:00:00"}`;
 }
 
 export async function getJustCallEnrichments(
-  leads: Array<{ phone: string; created_time: string }>
+  leads: Array<{ email: string; phone: string; created_time: string }>
 ): Promise<Map<string, JCEnrichment>> {
-  const result = new Map<string, JCEnrichment>();
+  const result = new Map<string, JCEnrichment>(); // keyed by normalised email
 
-  // Fetch calls and SMS in parallel
-  const [calls, smsList] = await Promise.all([
-    jcFetch<JCCall>("/calls/list"),
-    jcFetch<JCSms>("/texts/list").catch(() => [] as JCSms[]),  // texts optional
+  const [calls, texts] = await Promise.all([
+    jcFetch<JCCall>("/calls"),
+    jcFetch<JCText>("/texts").catch(() => [] as JCText[]),
   ]);
 
-  // Build phone -> calls map
-  const phoneToCalls  = new Map<string, JCCall[]>();
-  const phoneToSms    = new Map<string, JCSms[]>();
+  // Build lookup maps keyed by email (primary) and phone (fallback)
+  type ContactKey = string;
+  const emailToCalls = new Map<ContactKey, JCCall[]>();
+  const phoneToCalls = new Map<ContactKey, JCCall[]>();
 
   for (const c of calls) {
-    const key = normPhone(c.contact_number || "");
-    if (!key || key.length < 7) continue;
-    if (!phoneToCalls.has(key)) phoneToCalls.set(key, []);
-    phoneToCalls.get(key)!.push(c);
+    const ek = normEmail(c.contact_email);
+    const pk = normPhone(c.contact_number);
+    if (ek) {
+      if (!emailToCalls.has(ek)) emailToCalls.set(ek, []);
+      emailToCalls.get(ek)!.push(c);
+    }
+    if (pk.length >= 7) {
+      if (!phoneToCalls.has(pk)) phoneToCalls.set(pk, []);
+      phoneToCalls.get(pk)!.push(c);
+    }
   }
-  for (const s of smsList) {
-    const key = normPhone(s.contact_number || "");
-    if (!key || key.length < 7) continue;
-    if (!phoneToSms.has(key)) phoneToSms.set(key, []);
-    phoneToSms.get(key)!.push(s);
+
+  const emailToTexts = new Map<ContactKey, JCText[]>();
+  const phoneToTexts = new Map<ContactKey, JCText[]>();
+  for (const s of texts) {
+    const ek = normEmail(s.contact_email);
+    const pk = normPhone(s.contact_number);
+    if (ek) {
+      if (!emailToTexts.has(ek)) emailToTexts.set(ek, []);
+      emailToTexts.get(ek)!.push(s);
+    }
+    if (pk.length >= 7) {
+      if (!phoneToTexts.has(pk)) phoneToTexts.set(pk, []);
+      phoneToTexts.get(pk)!.push(s);
+    }
   }
 
   for (const lead of leads) {
-    const pk = normPhone(lead.phone || "");
-    if (!pk || pk.length < 7) continue;
+    const ek = normEmail(lead.email);
+    const pk = normPhone(lead.phone);
 
-    const leadCalls = phoneToCalls.get(pk) || [];
-    const leadSms   = phoneToSms.get(pk)   || [];
+    const leadCalls = (ek ? emailToCalls.get(ek) : undefined)
+                   || (pk ? phoneToCalls.get(pk) : undefined)
+                   || [];
 
-    if (!leadCalls.length && !leadSms.length) continue;
+    const leadTexts = (ek ? emailToTexts.get(ek) : undefined)
+                   || (pk ? phoneToTexts.get(pk) : undefined)
+                   || [];
 
-    // Sort calls by date
-    const sortedCalls = [...leadCalls].sort((a, b) => {
-      const da = parseDate(a.call_date)?.getTime() || 0;
-      const db = parseDate(b.call_date)?.getTime() || 0;
-      return da - db;
-    });
+    if (!leadCalls.length && !leadTexts.length) continue;
+
+    // Sort calls chronologically
+    const sortedCalls = [...leadCalls].sort((a, b) =>
+      toISO(a.call_date, a.call_time).localeCompare(toISO(b.call_date, b.call_time))
+    );
 
     const firstCall    = sortedCalls[0];
-    const firstCallDt  = firstCall ? parseDate(firstCall.call_date) : null;
-    const firstCallIso = firstCallDt?.toISOString() || null;
+    const firstCallISO = firstCall ? toISO(firstCall.call_date, firstCall.call_time) : null;
 
-    const callAnswered = sortedCalls.some(c => {
-      const s = (c.call_status || "").toLowerCase();
-      return s === "answered" || (s !== "missed" && s !== "voicemail" && s !== "busy" && s !== "failed" && c.duration > 0);
-    });
+    const callAnswered = sortedCalls.some(c =>
+      (c.call_info?.type || "").toLowerCase() === "answered" ||
+      (c.call_duration?.total_duration || 0) > 10
+    );
 
-    // First contact = earliest of calls or SMS
+    // First contact = earliest of calls or texts
     const allTimes: number[] = [
-      ...sortedCalls.map(c => parseDate(c.call_date)?.getTime() || 0),
-      ...leadSms.map(s    => parseDate(s.message_date)?.getTime() || 0),
+      ...sortedCalls.map(c => new Date(toISO(c.call_date, c.call_time)).getTime()),
+      ...leadTexts.map(s => new Date(toISO(s.sms_date, s.sms_time)).getTime()),
     ].filter(t => t > 0);
-    const firstContactTime = allTimes.length
+
+    const firstContactISO = allTimes.length
       ? new Date(Math.min(...allTimes)).toISOString()
-      : firstCallIso;
+      : firstCallISO;
 
     let minutesToFirstCall: number | null = null;
-    if (firstCallIso && lead.created_time) {
+    if (firstCallISO && lead.created_time) {
       const t1 = new Date(lead.created_time).getTime();
-      const t2 = new Date(firstCallIso).getTime();
+      const t2 = new Date(firstCallISO).getTime();
       if (!isNaN(t1) && !isNaN(t2) && t2 > t1) {
         minutesToFirstCall = Math.round((t2 - t1) / 60000);
       }
     }
 
-    result.set(pk, {
+    const enrichment: JCEnrichment = {
       wasCalled:         leadCalls.length > 0,
       callAnswered,
-      firstCallTime:     firstCallIso,
-      firstContactTime,
+      firstCallTime:     firstCallISO,
+      firstContactTime:  firstContactISO,
       minutesToFirstCall,
       totalCalls:        leadCalls.length,
-      lastCallStatus:    sortedCalls.at(-1)?.call_status || "",
-    });
+      agentName:         firstCall?.agent_name || "",
+    };
+
+    if (ek) result.set(ek, enrichment);
   }
 
   return result;
