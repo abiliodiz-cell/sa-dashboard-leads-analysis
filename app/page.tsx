@@ -5,11 +5,12 @@ import { DashboardStats } from "@/lib/fusion";
 import { applyFilters, computeStats, Filters } from "@/lib/clientStats";
 import { KPICard } from "@/components/dashboard/KPICard";
 import {
-  DateChart, HourChart, WeekdayChart,
+  DateChart, HourChart, WeekdayChart, WeekdayDonutChart,
   AdPerformanceChart, CampaignTable, OwnerTable,
-  RegionChart, PlatformChart, StatusChart,
+  RegionChart, PlatformChart, StatusChart, StatusDonutChart,
   FormAnswersPanel, LeadsTable,
   LeadsHeatmap, ResponseTimeChart, CallsHourChart,
+  ResponseTimeBucketsChart, AnswerRateByCountryChart, ResponseTimeByAgentChart,
 } from "@/components/dashboard/Charts";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
@@ -462,12 +463,14 @@ export default function DashboardPage() {
 
               {/* PATTERNS */}
               {activeTab === "patterns" && <>
+
+                {/* KPI row */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
                   {[
-                    { label: "Most Common Hour",    value: (() => { const h = [...d.byHour].sort((a,b) => b.count - a.count)[0]; return h ? `${h.hour}:00` : "-"; })() },
-                    { label: "Most Common Weekday", value: (() => { const wd = [...d.byWeekday].sort((a,b) => b.count - a.count)[0]; return wd ? wd.day.slice(0,3) : "-"; })() },
-                    { label: "Top Country",         value: d.byRegion[0]?.region || "-" },
-                    { label: "Avg Response Time",   value: fmtMinutes(d.avgMinutesToFirstCall) },
+                    { label: "Peak Hour",         value: (() => { const h = [...d.byHour].sort((a,b)=>b.count-a.count)[0]; return h ? `${h.hour}:00` : "-"; })() },
+                    { label: "Peak Day",          value: (() => { const w = [...d.byWeekday].sort((a,b)=>b.count-a.count)[0]; return w ? w.day.slice(0,3) : "-"; })() },
+                    { label: "Top Country",       value: d.byRegion[0]?.region || "-" },
+                    { label: "Avg Response Time", value: fmtMinutes(d.avgMinutesToFirstCall) },
                   ].map((kpi, i) => (
                     <div key={i} style={{ ...card, textAlign: "center" }}>
                       <p style={{ ...sectionLabel, marginBottom: 8 }}>{kpi.label}</p>
@@ -476,40 +479,43 @@ export default function DashboardPage() {
                   ))}
                 </div>
 
+                {/* Section: Temporal Patterns */}
+                <SectionHeader title="Temporal Patterns" description="When do leads arrive and calls get answered" />
                 <LeadsHeatmap data={d.heatmap} />
-
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <HourChart    data={d.byHour}    />
-                  <WeekdayChart data={d.byWeekday} />
+                  <HourChart       data={d.byHour}    />
+                  <WeekdayDonutChart data={d.byWeekday} />
                 </div>
 
+                {/* Section: Response Time Analysis */}
+                <SectionHeader title="Response Time Analysis" description="How fast leads are being contacted and call outcomes" />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <ResponseTimeChart data={d.responseTimeByCountry} />
-                  <CallsHourChart    data={d.callsByHour}           />
+                  <ResponseTimeBucketsChart leads={d.leads} />
+                  <ResponseTimeChart        data={d.responseTimeByCountry} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <ResponseTimeByAgentChart leads={d.leads} />
+                  <CallsHourChart           data={d.callsByHour} />
                 </div>
 
+                {/* Section: Geographic Analysis */}
+                <SectionHeader title="Geographic Analysis" description="Lead volume and call performance by country" />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <RegionChart data={d.byRegion} />
-                  <div style={card}>
-                    <p style={sectionLabel}>Top Countries by Lead Volume</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {d.byRegion.slice(0, 8).map((r, i) => {
-                        const pct = d.totalLeads ? Math.round((r.count / d.totalLeads) * 100) : 0;
-                        return (
-                          <div key={i}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4, fontWeight: 500 }}>
-                              <span style={{ color: C.textMid }}>{r.region}</span>
-                              <span style={{ fontFamily: "DM Mono, monospace", fontWeight: 700, color: C.blue }}>{r.count} <span style={{ color: C.textFaint, fontWeight: 400 }}>({pct}%)</span></span>
-                            </div>
-                            <div style={{ height: 7, borderRadius: 4, background: C.border }}>
-                              <div style={{ height: "100%", borderRadius: 4, width: `${pct}%`, background: C.blueLight, transition: "width 0.5s" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <RegionChart               data={d.byRegion} />
+                  <AnswerRateByCountryChart  leads={d.leads}   />
                 </div>
+
+                {/* Section: Status & Platform */}
+                <SectionHeader title="Pipeline Status" description="Current deal stage distribution across leads" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <StatusDonutChart data={d.byStatus}   />
+                  <PlatformChart   data={d.byPlatform} />
+                </div>
+
+                {/* Section: AI Analysis */}
+                <SectionHeader title="AI Analysis" description="Claude analyzes your filtered data and surfaces patterns and recommendations" />
+                <AIInsightsPanel stats={d} />
+
               </>}
 
               {/* ADS */}
@@ -562,6 +568,148 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div style={{ paddingTop: 8 }}>
+      <div style={{ height: 1, background: C.border, marginBottom: 16 }} />
+      <div style={{ fontWeight: 700, fontSize: 14, color: C.text, marginBottom: description ? 2 : 0 }}>{title}</div>
+      {description && <div style={{ fontSize: 12, color: C.textMuted }}>{description}</div>}
+    </div>
+  );
+}
+
+// ── AI Insights Panel ─────────────────────────────────────────────────────────
+function buildAnalysisPayload(stats: DashboardStats) {
+  const leads = stats.leads;
+  const buckets: Record<string, number> = { "Under 1h": 0, "1-24h": 0, "1-3 days": 0, "Over 3 days": 0, "Not called": 0 };
+  leads.forEach(l => {
+    if (!l.was_called) { buckets["Not called"]++; return; }
+    const m = l.minutes_to_first_call;
+    if (m == null || m <= 0) { buckets["Not called"]++; return; }
+    if (m < 60)        buckets["Under 1h"]++;
+    else if (m < 1440) buckets["1-24h"]++;
+    else if (m < 4320) buckets["1-3 days"]++;
+    else               buckets["Over 3 days"]++;
+  });
+  const topHours = [...stats.byHour].sort((a,b)=>b.count-a.count).slice(0,3).map(h=>`${h.hour}:00 (${h.count})`);
+  const topDays  = [...stats.byWeekday].sort((a,b)=>b.count-a.count).slice(0,3).map(d=>`${d.day} (${d.count})`);
+  return {
+    totalLeads:            stats.totalLeads,
+    pctCalled:             stats.pctCalled,
+    callAnswerRate:        stats.callAnswerRate,
+    avgMinutesToFirstCall: stats.avgMinutesToFirstCall,
+    byStatus:              stats.byStatus.slice(0, 6),
+    byCountry:             stats.byRegion.slice(0, 8),
+    byAgent:               stats.byOwner.map(o => ({ agent: o.owner, leads: o.leads, called: o.called, answered: o.answered, converted: o.converted })),
+    topHours,
+    topDays,
+    responseTimeBuckets:   buckets,
+    responseTimeByCountry: stats.responseTimeByCountry.slice(0, 5),
+    byCampaign:            stats.byCampaign.slice(0, 5),
+  };
+}
+
+function renderAnalysis(text: string) {
+  return text.split("\n").map((line, i) => {
+    if (line.startsWith("## ")) return (
+      <div key={i} style={{ fontWeight: 700, fontSize: 14, color: C.text, marginTop: i > 0 ? 20 : 0, marginBottom: 8, borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+        {line.replace("## ", "")}
+      </div>
+    );
+    if (line.startsWith("- ") || line.startsWith("* ")) return (
+      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+        <span style={{ color: C.blueLight, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>-</span>
+        <span style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>{line.slice(2)}</span>
+      </div>
+    );
+    if (line.trim() === "") return <div key={i} style={{ height: 4 }} />;
+    return <p key={i} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6, margin: "0 0 6px" }}>{line}</p>;
+  });
+}
+
+function AIInsightsPanel({ stats }: { stats: DashboardStats }) {
+  const [loading,  setLoading]  = useState(false);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [error,    setError]    = useState<string | null>(null);
+
+  async function analyze() {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildAnalysisPayload(stats)),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Analysis failed");
+      setAnalysis(data.analysis);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ ...card }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 16 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: "linear-gradient(135deg, #cc785c 0%, #e8a87c 100%)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 700, color: "white", flexShrink: 0,
+            }}>AI</div>
+            <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Claude Insights</span>
+          </div>
+          <p style={{ fontSize: 12, color: C.textMuted, margin: 0 }}>
+            Powered by Claude {analysis ? `- ${stats.totalLeads} leads analyzed` : "- click to analyze your filtered data"}
+          </p>
+        </div>
+        <button onClick={analyze} disabled={loading} style={{
+          display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+          padding: "9px 20px", borderRadius: 9, border: "none",
+          cursor: loading ? "default" : "pointer",
+          background: loading ? C.bg : "linear-gradient(135deg, #cc785c 0%, #e8a87c 100%)",
+          color: loading ? C.textMuted : "white",
+          fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+          boxShadow: loading ? "none" : "0 2px 8px rgba(204,120,92,0.35)",
+        }}>
+          {loading
+            ? <><div style={{ width: 14, height: 14, border: "2px solid #94a3b8", borderTopColor: C.textMuted, borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Analyzing...</>
+            : analysis ? "Re-analyze" : "Generate Insights"
+          }
+        </button>
+      </div>
+
+      {!analysis && !loading && !error && (
+        <div style={{ textAlign: "center", padding: "36px 0", background: "#fafbfc", borderRadius: 10, border: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg, #cc785c 0%, #e8a87c 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", fontSize: 20, fontWeight: 700, color: "white" }}>AI</div>
+          </div>
+          <p style={{ fontSize: 14, fontWeight: 600, color: C.textMid, marginBottom: 6 }}>AI-Powered Pattern Analysis</p>
+          <p style={{ fontSize: 12, color: C.textMuted, maxWidth: 340, margin: "0 auto" }}>
+            Claude will analyze your {stats.totalLeads} filtered leads and surface key patterns, agent performance gaps, and actionable recommendations.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "14px 16px", fontSize: 13, color: "#9a3412" }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Could not generate analysis</div>
+          <div>{error.includes("ANTHROPIC_API_KEY")
+            ? "Set the ANTHROPIC_API_KEY environment variable in your Vercel project settings to enable AI insights."
+            : error
+          }</div>
+        </div>
+      )}
+
+      {analysis && (
+        <div style={{ paddingTop: 4 }}>{renderAnalysis(analysis)}</div>
+      )}
     </div>
   );
 }

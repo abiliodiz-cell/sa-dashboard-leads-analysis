@@ -637,6 +637,261 @@ export function CallsHourChart({ data }: { data: DashboardStats["callsByHour"] }
   );
 }
 
+// ── RESPONSE TIME BUCKETS (donut) ─────────────────────────────────────────────
+export function ResponseTimeBucketsChart({ leads }: { leads: EnrichedLead[] }) {
+  const buckets = useMemo(() => {
+    const b = [
+      { name: "Under 1h",   count: 0, color: GREEN  },
+      { name: "1 - 24h",    count: 0, color: YELLOW },
+      { name: "1 - 3 days", count: 0, color: ORANGE },
+      { name: "Over 3 days",count: 0, color: DANGER },
+      { name: "Not called", count: 0, color: "#cbd5e1" },
+    ];
+    leads.forEach(l => {
+      if (!l.was_called) { b[4].count++; return; }
+      const m = l.minutes_to_first_call;
+      if (m == null || m <= 0) { b[4].count++; return; }
+      if      (m < 60)   b[0].count++;
+      else if (m < 1440) b[1].count++;
+      else if (m < 4320) b[2].count++;
+      else               b[3].count++;
+    });
+    return b;
+  }, [leads]);
+
+  const total = leads.length;
+  const data  = buckets.filter(b => b.count > 0);
+  if (!data.length) return null;
+
+  return (
+    <div style={CARD}>
+      <Label>Response Time Distribution</Label>
+      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+        <div style={{ flexShrink: 0 }}>
+          <ResponsiveContainer width={150} height={150}>
+            <PieChart>
+              <Pie data={data} dataKey="count" nameKey="name" cx="50%" cy="50%"
+                outerRadius={68} innerRadius={38} strokeWidth={3} stroke="#fff">
+                {data.map((_: any, i: number) => <Cell key={i} fill={data[i].color} />)}
+              </Pie>
+              <Tooltip {...TT} formatter={(v: any, n: any) => [v, n]} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 9 }}>
+          {data.map((b, i) => {
+            const pct = total ? Math.round((b.count / total) * 100) : 0;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: b.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: "#334155", flex: 1 }}>{b.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: b.color, fontFamily: "DM Mono, monospace" }}>{b.count}</span>
+                <span style={{ fontSize: 11, color: MUTED, fontFamily: "DM Mono, monospace", minWidth: 30, textAlign: "right" }}>{pct}%</span>
+              </div>
+            );
+          })}
+          <div style={{ paddingTop: 6, borderTop: `1px solid ${BORDER}`, fontSize: 11, color: MUTED }}>
+            {total} leads total
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ANSWER RATE BY COUNTRY ────────────────────────────────────────────────────
+export function AnswerRateByCountryChart({ leads }: { leads: EnrichedLead[] }) {
+  const data = useMemo(() => {
+    const map: Record<string, { total: number; called: number; answered: number }> = {};
+    leads.forEach(l => {
+      const c = l.country || "Unknown";
+      if (!map[c]) map[c] = { total: 0, called: 0, answered: 0 };
+      map[c].total++;
+      if (l.was_called)    map[c].called++;
+      if (l.call_answered) map[c].answered++;
+    });
+    return Object.entries(map)
+      .filter(([, v]) => v.total >= 3)
+      .map(([country, v]) => ({
+        country,
+        leads: v.total,
+        callRate:   v.total  ? Math.round(v.called    / v.total  * 100) : 0,
+        answerRate: v.called ? Math.round(v.answered  / v.called * 100) : 0,
+      }))
+      .sort((a, b) => b.leads - a.leads)
+      .slice(0, 8);
+  }, [leads]);
+
+  if (!data.length) return (
+    <div style={CARD}>
+      <Label>Call & Answer Rate by Country</Label>
+      <p style={{ color: MUTED, fontSize: 13 }}>No call data available yet</p>
+    </div>
+  );
+
+  return (
+    <div style={CARD}>
+      <Label>Call & Answer Rate by Country</Label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {data.map((r, i) => (
+          <div key={i}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
+              <span style={{ fontWeight: 600, color: "#334155" }}>{r.country}</span>
+              <span style={{ color: MUTED, fontFamily: "DM Mono, monospace", fontSize: 11 }}>{r.leads} leads</span>
+            </div>
+            {[
+              { label: "Called",    rate: r.callRate,   color: TEAL  },
+              { label: "Answered",  rate: r.answerRate, color: GREEN },
+            ].map(m => (
+              <div key={m.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                <span style={{ fontSize: 10, color: MUTED, width: 54, flexShrink: 0 }}>{m.label}</span>
+                <div style={{ flex: 1, height: 6, borderRadius: 3, background: BG }}>
+                  <div style={{ height: "100%", borderRadius: 3, width: `${m.rate}%`, background: m.color, transition: "width 0.5s" }} />
+                </div>
+                <span style={{ fontSize: 11, fontFamily: "DM Mono, monospace", color: m.color, fontWeight: 700, minWidth: 28, textAlign: "right" }}>{m.rate}%</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── RESPONSE TIME BY AGENT ────────────────────────────────────────────────────
+export function ResponseTimeByAgentChart({ leads }: { leads: EnrichedLead[] }) {
+  const data = useMemo(() => {
+    const map: Record<string, { sum: number; count: number }> = {};
+    leads.forEach(l => {
+      if (l.minutes_to_first_call == null || l.minutes_to_first_call <= 0) return;
+      const a = l.owner || "Unassigned";
+      if (!map[a]) map[a] = { sum: 0, count: 0 };
+      map[a].sum   += l.minutes_to_first_call;
+      map[a].count++;
+    });
+    return Object.entries(map)
+      .map(([agent, v]) => ({ agent, avgMinutes: Math.round(v.sum / v.count), count: v.count }))
+      .sort((a, b) => a.avgMinutes - b.avgMinutes);
+  }, [leads]);
+
+  if (!data.length) return null;
+
+  const max = Math.max(...data.map(d => d.avgMinutes), 1);
+  const fmt = (m: number) => m < 60 ? `${m}m` : m < 1440 ? `${(m / 60).toFixed(1)}h` : `${(m / 1440).toFixed(1)}d`;
+  const col = (m: number) => m < 120 ? GREEN : m < 1440 ? YELLOW : DANGER;
+
+  return (
+    <div style={CARD}>
+      <Label>Avg Response Time by Agent</Label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+        {data.map((r, i) => {
+          const pct = (r.avgMinutes / max) * 100;
+          const c   = col(r.avgMinutes);
+          return (
+            <div key={i}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+                <span style={{ fontWeight: 600, color: "#334155" }}>{r.agent}</span>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: MUTED }}>{r.count} calls</span>
+                  <span style={{ fontFamily: "DM Mono, monospace", fontSize: 12, color: c, fontWeight: 700 }}>{fmt(r.avgMinutes)}</span>
+                </div>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: BG }}>
+                <div style={{ height: "100%", borderRadius: 4, width: `${pct}%`, background: c, transition: "width 0.5s" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── LEAD SHARE BY WEEKDAY (donut) ─────────────────────────────────────────────
+export function WeekdayDonutChart({ data }: { data: DashboardStats["byWeekday"] }) {
+  const total = data.reduce((s, d) => s + d.count, 0);
+  const pieData = data.map((d, i) => ({ name: d.day.slice(0, 3), count: d.count, color: PALETTE[i % PALETTE.length] }))
+    .filter(d => d.count > 0);
+
+  if (!pieData.length) return null;
+  return (
+    <div style={CARD}>
+      <Label>Lead Share by Day of Week</Label>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ flexShrink: 0 }}>
+          <ResponsiveContainer width={150} height={150}>
+            <PieChart>
+              <Pie data={pieData} dataKey="count" nameKey="name" cx="50%" cy="50%"
+                outerRadius={68} innerRadius={38} strokeWidth={3} stroke="#fff">
+                {pieData.map((_, i) => <Cell key={i} fill={pieData[i].color} />)}
+              </Pie>
+              <Tooltip {...TT} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+          {pieData.map((d, i) => {
+            const pct = total ? Math.round((d.count / total) * 100) : 0;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: "#334155", flex: 1 }}>{d.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: d.color, fontFamily: "DM Mono, monospace" }}>{d.count}</span>
+                <span style={{ fontSize: 11, color: MUTED, fontFamily: "DM Mono, monospace", minWidth: 28, textAlign: "right" }}>{pct}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PLATFORM DONUT ────────────────────────────────────────────────────────────
+export function StatusDonutChart({ data }: { data: DashboardStats["byStatus"] }) {
+  if (!data.length) return null;
+  const total = data.reduce((s, x) => s + x.count, 0);
+  const COLOR = (s: string) => {
+    const l = s.toLowerCase();
+    if (l.includes("won") || l.includes("convert")) return GREEN;
+    if (l.includes("lost"))  return DANGER;
+    if (l.includes("open") || l.includes("new"))    return BLUE;
+    return YELLOW;
+  };
+  const pieData = data.slice(0, 7).map(d => ({ ...d, color: COLOR(d.status) }));
+  return (
+    <div style={CARD}>
+      <Label>Deal Status Breakdown</Label>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ flexShrink: 0 }}>
+          <ResponsiveContainer width={150} height={150}>
+            <PieChart>
+              <Pie data={pieData} dataKey="count" nameKey="status" cx="50%" cy="50%"
+                outerRadius={68} innerRadius={38} strokeWidth={3} stroke="#fff">
+                {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+              </Pie>
+              <Tooltip {...TT} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+          {pieData.map((d, i) => {
+            const pct = total ? Math.round((d.count / total) * 100) : 0;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: "#334155", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.status || "Unknown"}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: d.color, fontFamily: "DM Mono, monospace" }}>{d.count}</span>
+                <span style={{ fontSize: 11, color: MUTED, fontFamily: "DM Mono, monospace", minWidth: 28, textAlign: "right" }}>{pct}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── LEGACY STUBS ──────────────────────────────────────────────────────────────
 export function TimeToContactChart({ data }: { data: any }) { return null; }
 export function CallsByHourChart({ data }: { data: any }) { return null; }
