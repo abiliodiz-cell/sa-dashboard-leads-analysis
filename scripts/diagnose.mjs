@@ -9,8 +9,8 @@ const require = createRequire(import.meta.url);
 const PD_TOKEN  = "85b1d6068f2d9b6c0071286b96e26fc137a19c88";
 const JC_KEY    = "124efc5c98d2228b11bd7b268cfb8bc04b9ba13b";
 const JC_SECRET = "36a55928b9b30ac64f75ec98c4c744d103086d03";
-const SHEET_ID  = "1hRZXBG2F6U3Ae88fVj7CRspxo8PY6W-T";
-const SHEET_GID = "1456952099";
+const SHEET_ID  = "1XAoHV7qKn9IkLx1p28AQnzAnaeV7pQ6nbcBMfGNeyq4";
+const SHEET_GID = "";
 
 const jcAuth = () => "Basic " + Buffer.from(`${JC_KEY}:${JC_SECRET}`).toString("base64");
 
@@ -42,7 +42,8 @@ function parseCSV(text) {
 // ── 1. Google Sheet ──────────────────────────────────────────────────────────
 async function analyzeSheet() {
   console.log("\n=== GOOGLE SHEET ===");
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
+  const gidPart = SHEET_GID ? `&gid=${SHEET_GID}` : "";
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv${gidPart}`;
   const res = await fetch(url);
   const rows = parseCSV(await res.text());
   const headers = rows[0].map(h => h.trim().toLowerCase());

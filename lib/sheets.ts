@@ -1,5 +1,5 @@
-const SHEET_ID = process.env.SHEET_ID || "1hRZXBG2F6U3Ae88fVj7CRspxo8PY6W-T";
-const SHEET_GID = process.env.SHEET_GID || "1456952099";
+const SHEET_ID  = process.env.SHEET_ID  || "1XAoHV7qKn9IkLx1p28AQnzAnaeV7pQ6nbcBMfGNeyq4";
+const SHEET_GID = process.env.SHEET_GID || "";
 
 export interface SheetLead {
   id: string;
@@ -55,8 +55,15 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
+// Numeric-only strings are Pipedrive user IDs not resolved - treat as unassigned
+function cleanOwner(o: string): string {
+  if (!o || /^\d+$/.test(o.trim())) return "";
+  return o.trim();
+}
+
 export async function getSheetLeads(since?: string): Promise<SheetLead[]> {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
+  const gidParam = SHEET_GID ? `&gid=${SHEET_GID}` : "";
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv${gidParam}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch Google Sheet: ${res.status}`);
 
@@ -138,7 +145,7 @@ export async function getSheetLeads(since?: string): Promise<SheetLead[]> {
       organization_name: get(row, iOrgName),
       deal_title:        get(row, iDealTitle),
       country:           get(row, iCountry),
-      owner:             get(row, iOwner),
+      owner:             cleanOwner(get(row, iOwner)),
       status:            get(row, iStatus),
     });
   }

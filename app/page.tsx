@@ -51,6 +51,7 @@ const sectionLabel: CSSProperties = {
 // ── Layout constants ──────────────────────────────────────────────────────────
 const SIDEBAR_W = 230;
 const RANGES    = [{ label: "7d", days: 7 }, { label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "All", days: 9999 }];
+const DEFAULT_DAYS = 30; // default to last 30 days
 type Tab        = "overview" | "ads" | "agents" | "leads" | "patterns";
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
@@ -82,7 +83,7 @@ export default function DashboardPage() {
   const [stats, setStats]             = useState<DashboardStats | null>(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [days, setDays]               = useState(9999);
+  const [days, setDays]               = useState(DEFAULT_DAYS);
   const [activeTab, setActiveTab]     = useState<Tab>("overview");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
