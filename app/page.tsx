@@ -107,16 +107,29 @@ function MultiSelect({
 }: {
   label: string; options: string[]; value: string[]; onChange: (v: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen]   = useState(false);
+  const [pos,  setPos]    = useState({ top: 0, left: 0 });
+  const btnRef  = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        dropRef.current && !dropRef.current.contains(e.target as Node) &&
+        btnRef.current  && !btnRef.current.contains(e.target as Node)
+      ) setOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+
+  function openMenu() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpen(true);
+  }
 
   const toggle = (v: string) =>
     onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
@@ -130,8 +143,8 @@ function MultiSelect({
   const active = value.length > 0;
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(!open)} style={{
+    <div>
+      <button ref={btnRef} onClick={() => open ? setOpen(false) : openMenu()} style={{
         display: "flex", alignItems: "center", gap: 6,
         padding: "6px 12px", borderRadius: 8, cursor: "pointer",
         border: `1px solid ${active ? C.blueLight : C.border}`,
@@ -145,10 +158,10 @@ function MultiSelect({
       </button>
 
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200,
+        <div ref={dropRef} style={{
+          position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
           background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.13)", minWidth: 180, maxHeight: 260, overflowY: "auto",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.15)", minWidth: 200, maxHeight: 280, overflowY: "auto",
         }}>
           <div style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>
             <button onClick={() => { onChange([]); setOpen(false); }} style={{
@@ -322,7 +335,7 @@ export default function DashboardPage() {
           <div style={{
             height: 50, display: "flex", alignItems: "center", gap: 10,
             padding: "0 24px", borderTop: `1px solid ${C.border}`,
-            background: "#fafbfc", overflowX: "auto",
+            background: "#fafbfc", overflow: "visible",
           }}>
             {/* Quick presets */}
             <div style={{ display: "flex", background: C.bg, borderRadius: 8, padding: 3, gap: 2, border: `1px solid ${C.border}`, flexShrink: 0 }}>
