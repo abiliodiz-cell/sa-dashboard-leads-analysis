@@ -1,12 +1,5 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "env": {
-    "META_ACCESS_TOKEN": "@meta_access_token",
-    "META_PAGE_ID": "@meta_page_id",
-    "META_AD_ACCOUNT_ID": "@meta_ad_account_id",
-    "PIPEDRIVE_API_TOKEN": "@pipedrive_api_token",
-    "PIPEDRIVE_DOMAIN": "@pipedrive_domain"
-  }
+  "outputDirectory": ".next"
 }
