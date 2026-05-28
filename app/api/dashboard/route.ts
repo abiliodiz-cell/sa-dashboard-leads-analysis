@@ -4,8 +4,9 @@ import { fuseFromSheet } from "@/lib/fusion";
 import { getPipedriveEnrichments } from "@/lib/pipedrive";
 import { getJustCallEnrichments } from "@/lib/justcall";
 
-export const dynamic = "force-dynamic";
+export const dynamic    = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   try {

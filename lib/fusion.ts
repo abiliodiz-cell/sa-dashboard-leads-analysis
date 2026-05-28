@@ -80,13 +80,14 @@ export function fuseFromSheet(
     const ek  = l.email.toLowerCase().trim();
     const pk  = l.phone.replace(/\D/g, "").slice(-9);
     const pd  = enrichments?.get(ek);
-    const jc  = pk ? jcEnrichments?.get(pk) : undefined;
-    // JustCall is preferred for call data (more accurate), Pipedrive as fallback
-    const callWasCalled         = jc?.wasCalled         ?? pd?.wasCalled         ?? false;
-    const callAnswered          = jc?.callAnswered       ?? pd?.callAnswered      ?? false;
-    const callFirstCallTime     = jc?.firstCallTime      ?? pd?.firstCallTime     ?? null;
-    const callFirstContactTime  = jc?.firstContactTime   ?? pd?.firstContactTime  ?? null;
-    const callMinutesToFirst    = jc?.minutesToFirstCall ?? pd?.minutesToFirstCall ?? undefined;
+    // JustCall is the source of truth for call data; Pipedrive only provides deal stage/owner
+    const jc  = (ek ? jcEnrichments?.get(ek) : undefined)
+              || (pk ? jcEnrichments?.get(pk) : undefined);
+    const callWasCalled        = jc?.wasCalled         ?? false;
+    const callAnswered         = jc?.callAnswered      ?? false;
+    const callFirstCallTime    = jc?.firstCallTime     ?? null;
+    const callFirstContactTime = jc?.firstContactTime  ?? null;
+    const callMinutesToFirst   = jc?.minutesToFirstCall ?? undefined;
 
     return {
       id:                   l.id,
