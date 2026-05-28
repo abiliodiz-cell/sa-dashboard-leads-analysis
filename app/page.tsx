@@ -199,7 +199,8 @@ export default function DashboardPage() {
           {loading && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300, gap: 16 }}>
               <div style={{ width: 36, height: 36, border: "3px solid rgba(59,130,246,0.15)", borderTopColor: C.blueLight, borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-              <p style={{ color: C.textMuted, fontSize: 13 }}>Fetching leads and enriching with Pipedrive data...</p>
+              <p style={{ color: C.textMuted, fontSize: 13 }}>Loading data from Google Sheets, Pipedrive and JustCall...</p>
+              <p style={{ color: C.textFaint, fontSize: 11 }}>First load may take up to 30s while fetching all records</p>
             </div>
           )}
 
@@ -216,6 +217,14 @@ export default function DashboardPage() {
 
               {/* OVERVIEW */}
               {activeTab === "overview" && <>
+                {/* Data range info */}
+                {stats.byDate.length > 0 && (
+                  <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 16px", fontSize: 12, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 8 }}>
+                    <SvgIcon d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={14} color="#3b82f6" />
+                    <span>Data in Google Sheet: <strong>{stats.byDate[0]?.date}</strong> to <strong>{stats.byDate[stats.byDate.length-1]?.date}</strong> - {stats.totalLeads} leads.
+                    {" "}If you need more recent data, check that Make is syncing correctly to the sheet.</span>
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
                   <KPICard label="Total Leads"    value={stats.totalLeads}                     icon="leads"   color="blue"   delay={0}   />
                   <KPICard label="Called"         value={`${stats.pctCalled}%`}                icon="contact" color="teal"   delay={60}

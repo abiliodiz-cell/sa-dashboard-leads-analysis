@@ -44,12 +44,12 @@ export interface JCEnrichment {
   agentName: string;
 }
 
-async function jcFetch<T>(path: string): Promise<T[]> {
+async function jcFetch<T>(path: string, maxPages = 20): Promise<T[]> {
   const items: T[] = [];
   let page = 1;
   const perPage = 100;
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < maxPages; i++) {
     const sep = path.includes("?") ? "&" : "?";
     const url = `${BASE}${path}${sep}per_page=${perPage}&page=${page}`;
     const res = await fetch(url, {
@@ -98,8 +98,8 @@ export async function getJustCallEnrichments(
   const result = new Map<string, JCEnrichment>(); // keyed by normalised email
 
   const [calls, texts] = await Promise.all([
-    jcFetch<JCCall>("/calls"),
-    jcFetch<JCText>("/texts").catch(() => [] as JCText[]),
+    jcFetch<JCCall>("/calls", 15),
+    jcFetch<JCText>("/texts", 3).catch(() => [] as JCText[]),
   ]);
 
   // Build lookup maps keyed by email (primary) and phone (fallback)

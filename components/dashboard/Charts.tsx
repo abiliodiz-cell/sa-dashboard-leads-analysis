@@ -424,7 +424,7 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
               <th style={thStyle} onClick={() => handleSort("name")}>Name <SortArrow k="name" /></th>
               <th style={thStyle} onClick={() => handleSort("country")}>Country <SortArrow k="country" /></th>
               <th style={{ ...thStyle, cursor: "default" }}>Form</th>
-              <th style={{ ...thStyle, cursor: "default" }}>Ad</th>
+              <th style={{ ...thStyle, cursor: "default" }}>Campaign / Ad</th>
               <th style={thStyle} onClick={() => handleSort("submitted_at")}>Form Date <SortArrow k="submitted_at" /></th>
               <th style={{ ...thStyle, cursor: "default" }}>Time</th>
               <th style={thStyle} onClick={() => handleSort("first_call_time")}>1st Call <SortArrow k="first_call_time" /></th>
@@ -449,7 +449,10 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
                   <td style={{ padding: "9px 12px", fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#0f172a" }} title={lead.name}>{lead.name || "-"}</td>
                   <td style={{ padding: "9px 12px", color: "#334155", whiteSpace: "nowrap" }}>{lead.country || "-"}</td>
                   <td style={{ padding: "9px 12px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: MUTED, fontSize: 12 }} title={lead.form_name}>{lead.form_name || "-"}</td>
-                  <td style={{ padding: "9px 12px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#334155", fontSize: 12 }} title={lead.ad_name}>{lead.ad_name || "-"}</td>
+                  <td style={{ padding: "9px 12px", maxWidth: 180, color: "#334155", fontSize: 12 }}>
+                    {lead.campaign_name && <div style={{ fontSize: 10, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={lead.campaign_name}>{lead.campaign_name}</div>}
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={lead.ad_name}>{lead.ad_name || "-"}</div>
+                  </td>
                   <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.date}</td>
                   <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.time}</td>
                   <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED, whiteSpace: "nowrap" }}>{call.date}</td>
