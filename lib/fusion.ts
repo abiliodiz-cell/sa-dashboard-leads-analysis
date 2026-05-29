@@ -8,6 +8,9 @@ export interface EnrichedLead {
   name: string;
   email: string;
   phone: string;
+  job_title: string;
+  organization_name: string;
+  linkedin_url: string;      // search URL constructed from name + org
   ad_id: string;
   ad_name: string;
   adset_name: string;
@@ -53,6 +56,8 @@ export interface DashboardStats {
   byDate: { date: string; count: number }[];
   heatmap: { weekday: number; hour: number; count: number }[];
   responseTimeByCountry: { country: string; avgMinutes: number; count: number }[];
+  cplByCountry: { country: string; avgCPL: number; count: number }[];
+  cplVsResponseTime: { country: string; avgCPL: number; avgMinutes: number; leads: number }[];
   formAnswersSummary: Record<string, Record<string, number>>;
   timeToContactDistribution: { bucket: string; count: number }[];
   callDispositions: { disposition: string; count: number }[];
@@ -78,6 +83,10 @@ export function fuseFromSheet(
   metaByAd?: Map<string, MetaAdInsight>,
   metaByCampaign?: Map<string, number>
 ): DashboardStats {
+  // Build campaign leads count for campaign-level CPL fallback
+  const campLeadCount: Record<string, number> = {};
+  leads.forEach(l => { const k = l.campaign_name || ""; campLeadCount[k] = (campLeadCount[k] || 0) + 1; });
+
   const enriched: EnrichedLead[] = leads.map((l) => {
     const dt = l.created_time ? new Date(l.created_time) : new Date();
     const ek = l.email.toLowerCase().trim();
@@ -86,17 +95,33 @@ export function fuseFromSheet(
     const jc = (ek ? jcEnrichments?.get(ek) : undefined)
              || (pk ? jcEnrichments?.get(pk) : undefined);
 
-    // Lead cost from Meta: match by ad_id
-    const metaAd   = l.ad_id ? metaByAd?.get(l.ad_id) : undefined;
-    const leadCost = metaAd && metaAd.meta_leads > 0
-      ? Math.round((metaAd.spend / metaAd.meta_leads) * 100) / 100
-      : 0;
+    // Lead cost: try ad-level first, then campaign-level fallback
+    const metaAd = l.ad_id ? metaByAd?.get(l.ad_id) : undefined;
+    let leadCost = 0;
+    if (metaAd && metaAd.meta_leads > 0) {
+      leadCost = Math.round((metaAd.spend / metaAd.meta_leads) * 100) / 100;
+    } else if (metaAd && metaAd.spend > 0) {
+      // Ad spend known but no Meta lead count - use sheet leads for this ad
+      leadCost = Math.round((metaAd.spend / 1) * 100) / 100; // will be divided later
+    } else if (l.campaign_name && metaByCampaign) {
+      // Campaign-level fallback
+      const campSpend = metaByCampaign.get(l.campaign_name) || 0;
+      const campLeads = campLeadCount[l.campaign_name] || 1;
+      if (campSpend > 0) leadCost = Math.round((campSpend / campLeads) * 100) / 100;
+    }
+
+    // LinkedIn search URL from name + company
+    const liQuery  = [l.full_name, l.organization_name].filter(Boolean).join(" ");
+    const liUrl    = liQuery ? `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(liQuery)}` : "";
 
     return {
       id:                    l.id,
       name:                  l.full_name,
       email:                 l.email,
       phone:                 l.phone,
+      job_title:             l.job_title             || "",
+      organization_name:     l.organization_name     || "",
+      linkedin_url:          liUrl,
       ad_id:                 l.ad_id,
       ad_name:               l.ad_name,
       adset_name:            l.adset_name,
@@ -114,10 +139,10 @@ export function fuseFromSheet(
       deal_stage:            pd?.dealStage  || l.status || "",
       deal_status:           pd?.dealStatus || l.status || "",
       deal_value:            pd?.dealValue  || 0,
-      was_called:            jc?.wasCalled         ?? false,
-      call_answered:         jc?.callAnswered      ?? false,
-      first_call_time:       jc?.firstCallTime     ?? null,
-      first_contact_time:    jc?.firstContactTime  ?? null,
+      was_called:            jc?.wasCalled          ?? false,
+      call_answered:         jc?.callAnswered       ?? false,
+      first_call_time:       jc?.firstCallTime      ?? null,
+      first_contact_time:    jc?.firstContactTime   ?? null,
       minutes_to_first_call: jc?.minutesToFirstCall ?? undefined,
       lead_cost:             leadCost,
     };
@@ -251,6 +276,38 @@ export function fuseFromSheet(
     });
   });
 
+  // CPL by country (only for leads with a known cost)
+  const cplCtry: Record<string, { sum: number; count: number }> = {};
+  enriched.forEach(l => {
+    if (l.lead_cost > 0) {
+      const c = l.country || "Unknown";
+      if (!cplCtry[c]) cplCtry[c] = { sum: 0, count: 0 };
+      cplCtry[c].sum   += l.lead_cost;
+      cplCtry[c].count += 1;
+    }
+  });
+  const cplByCountry = Object.entries(cplCtry)
+    .map(([country, v]) => ({ country, avgCPL: Math.round((v.sum / v.count) * 100) / 100, count: v.count }))
+    .sort((a, b) => b.avgCPL - a.avgCPL);
+
+  // CPL vs Response Time by country (for scatter analysis)
+  const cplRtCtry: Record<string, { cplSum: number; cplCount: number; rtSum: number; rtCount: number }> = {};
+  enriched.forEach(l => {
+    const c = l.country || "Unknown";
+    if (!cplRtCtry[c]) cplRtCtry[c] = { cplSum: 0, cplCount: 0, rtSum: 0, rtCount: 0 };
+    if (l.lead_cost > 0) { cplRtCtry[c].cplSum += l.lead_cost; cplRtCtry[c].cplCount++; }
+    if (l.minutes_to_first_call && l.minutes_to_first_call > 0) { cplRtCtry[c].rtSum += l.minutes_to_first_call; cplRtCtry[c].rtCount++; }
+  });
+  const cplVsResponseTime = Object.entries(cplRtCtry)
+    .filter(([, v]) => v.cplCount > 0 && v.rtCount > 0)
+    .map(([country, v]) => ({
+      country,
+      avgCPL:     Math.round((v.cplSum / v.cplCount) * 100) / 100,
+      avgMinutes: Math.round(v.rtSum / v.rtCount),
+      leads:      v.cplCount,
+    }))
+    .sort((a, b) => b.leads - a.leads);
+
   return {
     leads: enriched,
     totalLeads, openLeads,
@@ -261,7 +318,8 @@ export function fuseFromSheet(
     avgMinutesToFirstCall,
     byHour, byWeekday, byDate, heatmap,
     byAd, byCampaign, byOwner, byRegion, byPlatform, byStatus,
-    responseTimeByCountry, callsByHour, formAnswersSummary,
+    responseTimeByCountry, cplByCountry, cplVsResponseTime,
+    callsByHour, formAnswersSummary,
     timeToContactDistribution: [], callDispositions: [],
     totalSpend, avgCPL,
     callAnsweredRate: called ? Math.round((answered / called) * 100) : 0,

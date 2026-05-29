@@ -136,6 +136,38 @@ export function computeStats(leads: EnrichedLead[]): DashboardStats {
     });
   });
 
+  // CPL by country
+  const cplCtry: Record<string, { sum: number; count: number }> = {};
+  leads.forEach(l => {
+    if (l.lead_cost > 0) {
+      const c = l.country || "Unknown";
+      if (!cplCtry[c]) cplCtry[c] = { sum: 0, count: 0 };
+      cplCtry[c].sum += l.lead_cost; cplCtry[c].count++;
+    }
+  });
+  const cplByCountry = Object.entries(cplCtry)
+    .map(([country, v]) => ({ country, avgCPL: Math.round(v.sum/v.count*100)/100, count: v.count }))
+    .sort((a, b) => b.avgCPL - a.avgCPL);
+
+  // CPL vs response time by country
+  const cplRtCtry: Record<string, { cplSum:number; cplCount:number; rtSum:number; rtCount:number }> = {};
+  leads.forEach(l => {
+    const c = l.country || "Unknown";
+    if (!cplRtCtry[c]) cplRtCtry[c] = { cplSum:0, cplCount:0, rtSum:0, rtCount:0 };
+    if (l.lead_cost > 0) { cplRtCtry[c].cplSum += l.lead_cost; cplRtCtry[c].cplCount++; }
+    if (l.minutes_to_first_call && l.minutes_to_first_call > 0) { cplRtCtry[c].rtSum += l.minutes_to_first_call; cplRtCtry[c].rtCount++; }
+  });
+  const cplVsResponseTime = Object.entries(cplRtCtry)
+    .filter(([,v]) => v.cplCount > 0 && v.rtCount > 0)
+    .map(([country, v]) => ({
+      country, avgCPL: Math.round(v.cplSum/v.cplCount*100)/100,
+      avgMinutes: Math.round(v.rtSum/v.rtCount), leads: v.cplCount,
+    }))
+    .sort((a, b) => b.leads - a.leads);
+
+  const totalSpend = byCampaign.reduce((s,c) => s + c.spend, 0);
+  const avgCPL     = totalSpend > 0 && totalLeads > 0 ? Math.round(totalSpend/totalLeads*100)/100 : 0;
+
   return {
     leads,
     totalLeads, openLeads,
@@ -146,9 +178,11 @@ export function computeStats(leads: EnrichedLead[]): DashboardStats {
     avgMinutesToFirstCall,
     byHour, byWeekday, byDate, heatmap,
     byAd, byCampaign, byOwner, byRegion, byPlatform, byStatus,
-    responseTimeByCountry, callsByHour, formAnswersSummary,
+    responseTimeByCountry, cplByCountry, cplVsResponseTime,
+    callsByHour, formAnswersSummary,
     timeToContactDistribution: [], callDispositions: [],
-    totalSpend:0, avgCPL:0, callAnsweredRate: called ? Math.round(answered/called*100) : 0,
+    totalSpend, avgCPL,
+    callAnsweredRate: called ? Math.round(answered/called*100) : 0,
     adInsights:[],
   };
 }

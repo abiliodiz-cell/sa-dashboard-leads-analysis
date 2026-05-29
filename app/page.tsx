@@ -11,6 +11,7 @@ import {
   FormAnswersPanel, LeadsTable,
   LeadsHeatmap, ResponseTimeChart, CallsHourChart,
   ResponseTimeBucketsChart, AnswerRateByCountryChart, ResponseTimeByAgentChart,
+  CPLByCountryChart, CPLvsResponseChart,
 } from "@/components/dashboard/Charts";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
@@ -524,6 +525,15 @@ export default function DashboardPage() {
                   <RegionChart               data={d.byRegion} />
                   <AnswerRateByCountryChart  leads={d.leads}   />
                 </div>
+
+                {/* Section: Cost Analysis */}
+                {d.cplByCountry.length > 0 && <>
+                  <SectionHeader title="Cost Analysis" description="Lead cost from Meta Ads - last 90 days" />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    <CPLByCountryChart    data={d.cplByCountry}      />
+                    <CPLvsResponseChart   data={d.cplVsResponseTime} />
+                  </div>
+                </>}
 
                 {/* Section: Status & Platform */}
                 <SectionHeader title="Pipeline Status" description="Current deal stage distribution across leads" />

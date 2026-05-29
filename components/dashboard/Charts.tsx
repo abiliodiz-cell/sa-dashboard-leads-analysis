@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, CartesianGrid,
+  ScatterChart, Scatter, ZAxis, LabelList,
 } from "recharts";
 import { DashboardStats, EnrichedLead } from "@/lib/fusion";
 
@@ -430,17 +431,15 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr>
-              <th style={thStyle} onClick={() => handleSort("name")}>Name <SortArrow k="name" /></th>
+              <th style={thStyle} onClick={() => handleSort("name")}>Name / Company <SortArrow k="name" /></th>
               <th style={thStyle} onClick={() => handleSort("country")}>Country <SortArrow k="country" /></th>
-              <th style={{ ...thStyle, cursor: "default" }}>Form</th>
               <th style={{ ...thStyle, cursor: "default" }}>Campaign / Ad</th>
               <th style={thStyle} onClick={() => handleSort("submitted_at")}>Form Date <SortArrow k="submitted_at" /></th>
-              <th style={{ ...thStyle, cursor: "default" }}>Time</th>
               <th style={thStyle} onClick={() => handleSort("first_call_time")}>1st Call <SortArrow k="first_call_time" /></th>
-              <th style={{ ...thStyle, cursor: "default" }}>Call Time</th>
               <th style={{ ...thStyle, cursor: "default" }}>Answered</th>
               <th style={thStyle} onClick={() => handleSort("minutes_to_first_call")}>Response <SortArrow k="minutes_to_first_call" /></th>
               <th style={thStyle} onClick={() => handleSort("deal_stage")}>Stage <SortArrow k="deal_stage" /></th>
+              <th style={{ ...thStyle, cursor: "default" }}>CPL</th>
             </tr>
           </thead>
           <tbody>
@@ -455,20 +454,50 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
                   style={{ borderBottom: `1px solid ${BORDER}`, transition: "background 0.1s" }}
                   onMouseEnter={e => (e.currentTarget.style.background = BG)}
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  <td style={{ padding: "9px 12px", fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#0f172a" }} title={lead.name}>{lead.name || "-"}</td>
+
+                  {/* Name + company + job title + LinkedIn */}
+                  <td style={{ padding: "9px 12px", maxWidth: 180 }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={lead.name}>
+                          {lead.name || "-"}
+                        </div>
+                        {(lead.organization_name || lead.job_title) && (
+                          <div style={{ fontSize: 11, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}
+                            title={[lead.organization_name, lead.job_title].filter(Boolean).join(" - ")}>
+                            {lead.organization_name || lead.job_title}
+                          </div>
+                        )}
+                      </div>
+                      {lead.linkedin_url && (
+                        <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
+                          title="Search on LinkedIn"
+                          style={{ flexShrink: 0, color: "#0a66c2", opacity: 0.75, marginTop: 1 }}
+                          onClick={e => e.stopPropagation()}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                          </svg>
+                        </a>
+                      )}
+                    </div>
+                  </td>
+
                   <td style={{ padding: "9px 12px", color: "#334155", whiteSpace: "nowrap" }}>{lead.country || "-"}</td>
-                  <td style={{ padding: "9px 12px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: MUTED, fontSize: 12 }} title={lead.form_name}>{lead.form_name || "-"}</td>
                   <td style={{ padding: "9px 12px", maxWidth: 180, color: "#334155", fontSize: 12 }}>
                     {lead.campaign_name && <div style={{ fontSize: 10, color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={lead.campaign_name}>{lead.campaign_name}</div>}
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={lead.ad_name}>{lead.ad_name || "-"}</div>
                   </td>
-                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.date}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap" }}>{sub.time}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED, whiteSpace: "nowrap" }}>{call.date}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED, whiteSpace: "nowrap" }}>{call.time}</td>
+                  <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
+                    <div style={{ fontFamily: "DM Mono, monospace", fontSize: 12, color: MUTED }}>{sub.date}</div>
+                    <div style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: "#cbd5e1" }}>{sub.time}</div>
+                  </td>
+                  <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
+                    <div style={{ fontFamily: "DM Mono, monospace", fontSize: 12, color: lead.first_call_time ? TEAL : MUTED }}>{call.date}</div>
+                    <div style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: lead.first_call_time ? "rgba(8,145,178,0.6)" : "#cbd5e1" }}>{call.time}</div>
+                  </td>
                   <td style={{ padding: "9px 12px", textAlign: "center" }}>
                     {lead.was_called
-                      ? <span style={{ fontSize: 12, fontWeight: 700, color: lead.call_answered ? GREEN : ORANGE }}>{lead.call_answered ? "Yes" : "No answer"}</span>
+                      ? <span style={{ fontSize: 12, fontWeight: 700, color: lead.call_answered ? GREEN : ORANGE }}>{lead.call_answered ? "Yes" : "No ans."}</span>
                       : <span style={{ fontSize: 12, color: MUTED }}>-</span>
                     }
                   </td>
@@ -476,11 +505,14 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
                   <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
                     <span style={{ ...bs, display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{lead.deal_stage || "-"}</span>
                   </td>
+                  <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, fontWeight: 700, color: lead.lead_cost > 0 ? ORANGE : MUTED, whiteSpace: "nowrap" }}>
+                    {lead.lead_cost > 0 ? `$${lead.lead_cost.toFixed(2)}` : "-"}
+                  </td>
                 </tr>
               );
             })}
             {pageData.length === 0 && (
-              <tr><td colSpan={11} style={{ padding: "32px 12px", textAlign: "center", color: MUTED }}>No leads found</td></tr>
+              <tr><td colSpan={9} style={{ padding: "32px 12px", textAlign: "center", color: MUTED }}>No leads found</td></tr>
             )}
           </tbody>
         </table>
@@ -897,6 +929,76 @@ export function StatusDonutChart({ data }: { data: DashboardStats["byStatus"] })
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── CPL BY COUNTRY ────────────────────────────────────────────────────────────
+export function CPLByCountryChart({ data }: { data: DashboardStats["cplByCountry"] }) {
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => d.avgCPL), 1);
+  return (
+    <div style={CARD}>
+      <Label>Avg Cost per Lead by Country</Label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {data.map((r, i) => {
+          const pct = (r.avgCPL / max) * 100;
+          return (
+            <div key={i}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+                <span style={{ fontWeight: 600, color: "#334155" }}>{r.country}</span>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: MUTED }}>{r.count} leads</span>
+                  <span style={{ fontFamily: "DM Mono, monospace", fontSize: 13, color: ORANGE, fontWeight: 700 }}>${r.avgCPL.toFixed(2)}</span>
+                </div>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: BG }}>
+                <div style={{ height: "100%", borderRadius: 4, width: `${pct}%`, background: ORANGE, transition: "width 0.5s" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── CPL VS RESPONSE TIME (scatter by country) ─────────────────────────────────
+export function CPLvsResponseChart({ data }: { data: DashboardStats["cplVsResponseTime"] }) {
+  if (!data.length) return null;
+  const fmt = (m: number) => m < 60 ? `${m}m` : m < 1440 ? `${(m/60).toFixed(0)}h` : `${(m/1440).toFixed(1)}d`;
+  const chartData = data.map(d => ({ ...d, x: d.avgMinutes, y: d.avgCPL, z: d.leads }));
+  return (
+    <div style={CARD}>
+      <Label>CPL vs Response Time by Country</Label>
+      <p style={{ fontSize: 11, color: MUTED, marginBottom: 12, marginTop: -8 }}>
+        Each bubble = one country. Size = lead volume. Left = faster response. Bottom = cheaper leads.
+      </p>
+      <ResponsiveContainer width="100%" height={260}>
+        <ScatterChart margin={{ top: 10, right: 20, left: -10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+          <XAxis dataKey="x" type="number" name="Avg Response Time"
+            tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false}
+            tickFormatter={fmt} label={{ value: "Response Time", position: "insideBottom", offset: -4, fill: MUTED, fontSize: 10 }} />
+          <YAxis dataKey="y" type="number" name="Avg CPL"
+            tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false}
+            tickFormatter={v => `$${v}`} label={{ value: "CPL ($)", angle: -90, position: "insideLeft", fill: MUTED, fontSize: 10 }} />
+          <ZAxis dataKey="z" range={[60, 600]} />
+          <Tooltip
+            contentStyle={{ background: "#0f172a", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, color: "#f8fafc", fontSize: 12 }}
+            cursor={{ strokeDasharray: "3 3" }}
+            formatter={(v: any, name: string) => {
+              if (name === "Avg Response Time") return [fmt(v), name];
+              if (name === "Avg CPL") return [`$${v}`, name];
+              return [v, name];
+            }}
+          />
+          <Scatter data={chartData} fill={BLUE}>
+            <LabelList dataKey="country" position="top" style={{ fontSize: 10, fill: MUTED }} />
+            {chartData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+          </Scatter>
+        </ScatterChart>
+      </ResponsiveContainer>
     </div>
   );
 }
