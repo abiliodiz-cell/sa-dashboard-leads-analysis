@@ -440,16 +440,23 @@ export default function DashboardPage() {
                   </div>
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-                  <KPICard label="Total Leads"    value={d.totalLeads}                     icon="leads"   color="blue"   delay={0}   />
-                  <KPICard label="Called"         value={`${d.pctCalled}%`}                icon="contact" color="teal"   delay={60}
+                  <KPICard label="Total Leads"    value={d.totalLeads}                        icon="leads"   color="blue"   delay={0}   />
+                  <KPICard label="Called"         value={`${d.pctCalled}%`}                   icon="contact" color="teal"   delay={60}
                     sub={`${d.leads.filter(l => l.was_called).length} of ${d.totalLeads}`}
                     trend={d.pctCalled > 70 ? "up" : "down"} />
-                  <KPICard label="Answer Rate"    value={`${d.callAnswerRate}%`}           icon="open"    color="indigo" delay={120}
+                  <KPICard label="Answer Rate"    value={`${d.callAnswerRate}%`}              icon="open"    color="indigo" delay={120}
                     sub={d.callAnswerRate > 50 ? "Above 50%" : "Below 50%"}
                     trend={d.callAnswerRate > 50 ? "up" : "down"} />
-                  <KPICard label="Avg Response"   value={fmtMinutes(d.avgMinutesToFirstCall)} icon="star" color="green"  delay={180}
+                  <KPICard label="Avg Response"   value={fmtMinutes(d.avgMinutesToFirstCall)} icon="star"    color="green"  delay={180}
                     sub="time to first call" />
                 </div>
+                {d.totalSpend > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                    <KPICard label="Total Spend (90d)" value={`$${d.totalSpend.toFixed(0)}`}  icon="star" color="indigo" delay={0} sub="Meta Ads" />
+                    <KPICard label="Avg CPL"           value={`$${d.avgCPL.toFixed(2)}`}      icon="star" color="teal"   delay={60} sub="cost per lead" />
+                    <div /><div />
+                  </div>
+                )}
 
                 <DateChart data={d.byDate} />
 
@@ -728,25 +735,40 @@ function AIInsightsPanel({ stats }: { stats: DashboardStats }) {
 }
 
 function AdDetailTable({ data }: { data: any[] }) {
+  const hasSpend = data.some(r => r.spend > 0);
+  const thS: React.CSSProperties = { textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#64748b", borderBottom: "2px solid #e2e8f0", whiteSpace: "nowrap" };
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["Campaign", "Ad Name", "Leads", "Contact Rate"].map(h => (
-              <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "#64748b", borderBottom: "2px solid #e2e8f0" }}>{h}</th>
-            ))}
+            <th style={thS}>Campaign</th>
+            <th style={thS}>Ad Name</th>
+            <th style={thS}>Leads</th>
+            {hasSpend && <><th style={thS}>Spend</th><th style={thS}>CPL</th><th style={thS}>Impressions</th></>}
+            <th style={thS}>Contact Rate</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row, i) => (
             <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-              <td style={{ padding: "10px 12px", color: "#64748b", fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.campaign_name}>{row.campaign_name || "-"}</td>
-              <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 500, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.ad_name}>{row.ad_name}</td>
+              <td style={{ padding: "10px 12px", color: "#64748b", fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.campaign_name}>{row.campaign_name || "-"}</td>
+              <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 500, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.ad_name}>{row.ad_name}</td>
               <td style={{ padding: "10px 12px", color: "#3b82f6", fontWeight: 700, fontFamily: "DM Mono, monospace" }}>{row.leads}</td>
+              {hasSpend && <>
+                <td style={{ padding: "10px 12px", color: row.spend > 0 ? "#f97316" : "#94a3b8", fontWeight: 700, fontFamily: "DM Mono, monospace" }}>
+                  {row.spend > 0 ? `$${row.spend.toFixed(0)}` : "-"}
+                </td>
+                <td style={{ padding: "10px 12px", color: row.cpl > 0 ? "#10b981" : "#94a3b8", fontWeight: 700, fontFamily: "DM Mono, monospace" }}>
+                  {row.cpl > 0 ? `$${row.cpl.toFixed(2)}` : "-"}
+                </td>
+                <td style={{ padding: "10px 12px", color: "#64748b", fontFamily: "DM Mono, monospace" }}>
+                  {row.impressions > 0 ? row.impressions.toLocaleString() : "-"}
+                </td>
+              </>}
               <td style={{ padding: "10px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 80, height: 6, borderRadius: 3, background: "#e2e8f0" }}>
+                  <div style={{ width: 70, height: 6, borderRadius: 3, background: "#e2e8f0" }}>
                     <div style={{ height: "100%", borderRadius: 3, width: `${row.contact_rate}%`, background: row.contact_rate > 50 ? "#10b981" : "#f59e0b" }} />
                   </div>
                   <span style={{ fontSize: 12, fontFamily: "DM Mono, monospace", color: "#64748b" }}>{row.contact_rate}%</span>

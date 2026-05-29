@@ -67,7 +67,7 @@ export function computeStats(leads: EnrichedLead[]): DashboardStats {
     if(!isOpen(l.deal_status)) adMap[k].contacted++;
   });
   const byAd = Object.entries(adMap)
-    .map(([ad_name,v])=>({ad_name,campaign_name:v.campaign_name,leads:v.leads,spend:0,cpl:0,contact_rate:v.leads?Math.round(v.contacted/v.leads*100):0}))
+    .map(([ad_name,v])=>({ad_name,campaign_name:v.campaign_name,leads:v.leads,spend:0,cpl:0,impressions:0,clicks:0,contact_rate:v.leads?Math.round(v.contacted/v.leads*100):0}))
     .sort((a,b)=>b.leads-a.leads);
 
   // byCampaign

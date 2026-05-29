@@ -137,13 +137,14 @@ export function AdPerformanceChart({ data }: { data: DashboardStats["byAd"] }) {
 
 // ── CAMPAIGN TABLE ────────────────────────────────────────────────────────────
 export function CampaignTable({ data }: { data: DashboardStats["byCampaign"] }) {
+  const hasSpend = data.some(r => r.spend > 0);
   return (
     <div style={CARD}>
       <Label>Campaign Summary</Label>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["Campaign", "Leads"].map(h => (
+            {["Campaign", "Leads", ...(hasSpend ? ["Spend", "CPL"] : [])].map(h => (
               <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: MUTED, borderBottom: `2px solid ${BORDER}` }}>{h}</th>
             ))}
           </tr>
@@ -153,6 +154,14 @@ export function CampaignTable({ data }: { data: DashboardStats["byCampaign"] }) 
             <tr key={i} style={{ borderBottom: `1px solid ${BORDER}` }}>
               <td style={{ padding: "10px 12px", fontWeight: 500, color: "#334155" }}>{row.campaign}</td>
               <td style={{ padding: "10px 12px", fontWeight: 700, color: BLUE, fontFamily: "DM Mono, monospace" }}>{row.leads}</td>
+              {hasSpend && <>
+                <td style={{ padding: "10px 12px", fontWeight: 600, color: ORANGE, fontFamily: "DM Mono, monospace" }}>
+                  {row.spend > 0 ? `$${row.spend.toFixed(0)}` : "-"}
+                </td>
+                <td style={{ padding: "10px 12px", fontWeight: 600, color: row.cpl > 0 ? GREEN : MUTED, fontFamily: "DM Mono, monospace" }}>
+                  {row.cpl > 0 ? `$${row.cpl.toFixed(2)}` : "-"}
+                </td>
+              </>}
             </tr>
           ))}
         </tbody>

@@ -3,6 +3,7 @@ import { getSheetLeads } from "@/lib/sheets";
 import { fuseFromSheet } from "@/lib/fusion";
 import { getPipedriveEnrichments } from "@/lib/pipedrive";
 import { getJustCallEnrichments } from "@/lib/justcall";
+import { getMetaInsights, buildMetaLookup, buildCampaignSpendMap } from "@/lib/meta";
 
 export const dynamic    = "force-dynamic";
 export const revalidate = 0;
@@ -24,8 +25,8 @@ export async function GET(request: Request) {
       created_time: l.created_time,
     }));
 
-    // Enrich from Pipedrive and JustCall in parallel - both fail gracefully
-    const [enrichments, jcEnrichments] = await Promise.all([
+    // Fetch all sources in parallel - each fails gracefully
+    const [enrichments, jcEnrichments, metaInsights] = await Promise.all([
       getPipedriveEnrichments(leadRefs).catch(err => {
         console.warn("Pipedrive enrichment failed (non-fatal):", err?.message);
         return undefined;
@@ -34,9 +35,16 @@ export async function GET(request: Request) {
         console.warn("JustCall enrichment failed (non-fatal):", err?.message);
         return undefined;
       }),
+      getMetaInsights().catch(err => {
+        console.warn("Meta insights failed (non-fatal):", err?.message);
+        return [];
+      }),
     ]);
 
-    const stats = fuseFromSheet(leads, enrichments, jcEnrichments);
+    const metaByAd       = buildMetaLookup(metaInsights);
+    const metaByCampaign = buildCampaignSpendMap(metaInsights);
+
+    const stats = fuseFromSheet(leads, enrichments, jcEnrichments, metaByAd, metaByCampaign);
     return NextResponse.json(stats);
   } catch (error: any) {
     console.error("Dashboard API error:", error);
