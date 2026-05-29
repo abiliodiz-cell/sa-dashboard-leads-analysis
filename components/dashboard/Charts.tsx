@@ -987,8 +987,8 @@ export function CPLvsResponseChart({ data }: { data: DashboardStats["cplVsRespon
           <Tooltip
             contentStyle={{ background: "#0f172a", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, color: "#f8fafc", fontSize: 12 }}
             cursor={{ strokeDasharray: "3 3" }}
-            formatter={(v: any, name: string) => {
-              if (name === "Avg Response Time") return [fmt(v), name];
+            formatter={(v: any, name: any) => {
+              if (name === "Avg Response Time") return [fmt(Number(v)), name];
               if (name === "Avg CPL") return [`$${v}`, name];
               return [v, name];
             }}
