@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Smith & Adams — Lead Intelligence",
+  title: "Smith & Adams - Lead Intelligence",
   description: "Meta Ads + Pipedrive unified dashboard",
 };
 

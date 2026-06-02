@@ -320,16 +320,28 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-            <button onClick={load} disabled={loading} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "7px 16px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: C.blueLight, color: "white", fontSize: 12, fontWeight: 600,
-              fontFamily: "inherit", opacity: loading ? 0.6 : 1,
-            }}>
-              <SvgIcon d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-                size={13} color="white" />
-              {loading ? "Loading..." : "Refresh"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={load} disabled={loading} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 16px", borderRadius: 8, border: "none", cursor: "pointer",
+                background: C.blueLight, color: "white", fontSize: 12, fontWeight: 600,
+                fontFamily: "inherit", opacity: loading ? 0.6 : 1,
+              }}>
+                <SvgIcon d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                  size={13} color="white" />
+                {loading ? "Loading..." : "Refresh"}
+              </button>
+              <a href="/api/auth/logout" title="Sign out" style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 14px", borderRadius: 8, border: `1px solid ${C.border}`,
+                background: "transparent", color: C.textMid, fontSize: 12, fontWeight: 600,
+                fontFamily: "inherit", textDecoration: "none",
+              }}>
+                <SvgIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+                  size={13} color={C.textMid} />
+                Sign out
+              </a>
+            </div>
           </div>
 
           {/* Filter bar */}
