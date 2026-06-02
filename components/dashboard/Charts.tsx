@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, CartesianGrid,
@@ -361,6 +361,7 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
   const [page,   setPage]   = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("submitted_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedLead, setSelectedLead] = useState<EnrichedLead | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -412,6 +413,9 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
       {/* Header */}
       <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <p style={{ ...LABEL, margin: 0, flex: "0 0 auto" }}>All Leads ({filtered.length}{search ? ` of ${data.length}` : ""})</p>
+        <span style={{ fontSize: 10, color: MUTED, flex: "0 0 auto" }} title="A call only counts as effective (Answered = Yes) if it lasted over 2 minutes. Shorter connected calls show as Called* (not effective).">
+          <span style={{ color: ORANGE, fontWeight: 700 }}>Called*</span> = connected under 2 min (not effective)
+        </span>
         <div style={{ flex: 1, minWidth: 200 }}>
           <input
             value={search}
@@ -451,7 +455,9 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
               const respStr = mins == null ? "-" : mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
               return (
                 <tr key={i}
-                  style={{ borderBottom: `1px solid ${BORDER}`, transition: "background 0.1s" }}
+                  style={{ borderBottom: `1px solid ${BORDER}`, transition: "background 0.1s", cursor: "pointer" }}
+                  onClick={() => setSelectedLead(lead)}
+                  title="Click to view call analysis"
                   onMouseEnter={e => (e.currentTarget.style.background = BG)}
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
 
@@ -496,10 +502,31 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
                     <div style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: lead.first_call_time ? "rgba(8,145,178,0.6)" : "#cbd5e1" }}>{call.time}</div>
                   </td>
                   <td style={{ padding: "9px 12px", textAlign: "center" }}>
-                    {lead.was_called
-                      ? <span style={{ fontSize: 12, fontWeight: 700, color: lead.call_answered ? GREEN : ORANGE }}>{lead.call_answered ? "Yes" : "No ans."}</span>
-                      : <span style={{ fontSize: 12, color: MUTED }}>-</span>
-                    }
+                    {(() => {
+                      if (!lead.was_called) return <span style={{ fontSize: 12, color: MUTED }}>-</span>;
+                      const dur = lead.longest_call_sec || 0;
+                      const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m${dur % 60 ? ` ${dur % 60}s` : ""}` : `${dur}s`;
+                      if (lead.call_answered) {
+                        // Effective call > 2 min
+                        return (
+                          <div title={`Effective call - longest ${durStr}`}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: GREEN }}>Yes</div>
+                            <div style={{ fontSize: 10, color: MUTED, fontFamily: "DM Mono, monospace" }}>{durStr}</div>
+                          </div>
+                        );
+                      }
+                      if (lead.call_connected_short) {
+                        // Connected but under 2 min - not an effective conversation
+                        return (
+                          <div title={`Called but NOT an effective call (under 2 min) - longest ${durStr}`}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: ORANGE }}>Called*</div>
+                            <div style={{ fontSize: 10, color: ORANGE, fontFamily: "DM Mono, monospace" }}>{durStr} &middot; not eff.</div>
+                          </div>
+                        );
+                      }
+                      // Called but never picked up
+                      return <span style={{ fontSize: 12, fontWeight: 700, color: MUTED }} title="Called - no answer">No ans.</span>;
+                    })()}
                   </td>
                   <td style={{ padding: "9px 12px", fontFamily: "DM Mono, monospace", fontSize: 12, fontWeight: 700, color: mins == null ? MUTED : mins < 120 ? GREEN : mins < 1440 ? YELLOW : DANGER, whiteSpace: "nowrap" }}>{respStr}</td>
                   <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
@@ -543,6 +570,195 @@ export function LeadsTable({ data }: { data: EnrichedLead[] }) {
           </div>
         </div>
       )}
+
+      {selectedLead && (
+        <LeadCallModal lead={selectedLead} onClose={() => setSelectedLead(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── LEAD CALL ANALYSIS MODAL ────────────────────────────────────────────────
+interface CallDetailUI {
+  id: number; callSid: string; iso: string; agentName: string;
+  direction: string; type: string; disposition: string; notes: string;
+  durationSec: number; effective: boolean; hasRecording: boolean; recordingUrl: string;
+}
+interface CallAnalysisResp {
+  calls?: CallDetailUI[]; transcript?: string; analysis?: string;
+  note?: string; error?: string;
+  analyzedCall?: { id: number; durationSec: number; agentName: string; iso: string };
+}
+
+function fmtDuration(s: number): string {
+  const m = Math.floor(s / 60), r = s % 60;
+  return m ? `${m}m ${r}s` : `${r}s`;
+}
+
+// Minimal markdown renderer for the AI analysis (## headers + bullet/plain lines).
+function AnalysisMarkdown({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div style={{ fontSize: 13, lineHeight: 1.6, color: "#334155" }}>
+      {lines.map((ln, i) => {
+        const t = ln.trim();
+        if (!t) return <div key={i} style={{ height: 6 }} />;
+        if (t.startsWith("## ")) return <div key={i} style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: TEAL, marginTop: 14, marginBottom: 4 }}>{t.slice(3)}</div>;
+        if (t.startsWith("# "))  return <div key={i} style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginTop: 12, marginBottom: 4 }}>{t.slice(2)}</div>;
+        const bullet = t.startsWith("- ") || t.startsWith("* ");
+        const content = bullet ? t.slice(2) : t;
+        // bold **...**
+        const parts = content.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <div key={i} style={{ display: "flex", gap: 6, marginBottom: 3, paddingLeft: bullet ? 6 : 0 }}>
+            {bullet && <span style={{ color: TEAL, flexShrink: 0 }}>•</span>}
+            <span>{parts.map((p, j) => p.startsWith("**") && p.endsWith("**")
+              ? <strong key={j} style={{ color: "#0f172a" }}>{p.slice(2, -2)}</strong>
+              : <span key={j}>{p}</span>)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LeadCallModal({ lead, onClose }: { lead: EnrichedLead; onClose: () => void }) {
+  const [loading, setLoading]   = useState(true);
+  const [resp, setResp]         = useState<CallAnalysisResp | null>(null);
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setResp(null);
+    fetch("/api/call-analysis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: lead.email, phone: lead.phone, name: lead.name }),
+    })
+      .then(r => r.json())
+      .then(j => { if (!cancelled) { setResp(j); setLoading(false); } })
+      .catch(e => { if (!cancelled) { setResp({ error: e.message || "Request failed" }); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [lead.email, lead.phone, lead.name]);
+
+  // Close on Escape
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const calls = resp?.calls || [];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 10000,
+        background: "rgba(15,23,42,0.55)", backdropFilter: "blur(2px)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        padding: "40px 16px", overflowY: "auto",
+      }}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 16, width: "100%", maxWidth: 720,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden",
+        }}>
+        {/* Header */}
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#0f172a" }}>{lead.name || "Lead"}</div>
+            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
+              {[lead.organization_name, lead.country, lead.email].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            border: "none", background: BG, borderRadius: 8, width: 30, height: 30,
+            cursor: "pointer", fontSize: 16, color: MUTED, flexShrink: 0,
+          }}>×</button>
+        </div>
+
+        <div style={{ padding: "18px 22px", maxHeight: "70vh", overflowY: "auto" }}>
+          {/* Call timeline */}
+          <div style={{ ...LABEL, marginBottom: 10 }}>Call Timeline {calls.length ? `(${calls.length})` : ""}</div>
+          {loading && !calls.length && (
+            <div style={{ fontSize: 13, color: MUTED, padding: "8px 0" }}>Loading calls...</div>
+          )}
+          {!loading && !calls.length && (
+            <div style={{ fontSize: 13, color: MUTED, padding: "8px 0" }}>{resp?.note || "No calls found for this lead."}</div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {calls.map(c => {
+              const dt = fmtDT(c.iso);
+              const badge = c.effective
+                ? { bg: "rgba(16,185,129,0.1)", fg: GREEN, txt: "Effective" }
+                : c.durationSec > 0
+                  ? { bg: "rgba(249,115,22,0.1)", fg: ORANGE, txt: "Connected <2m (not eff.)" }
+                  : { bg: BG, fg: MUTED, txt: "No answer" };
+              return (
+                <div key={c.id} style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "DM Mono, monospace", fontSize: 12, color: "#334155" }}>{dt.date} {dt.time}</span>
+                    <span style={{ fontSize: 11, color: MUTED }}>· {c.direction || "-"} · {c.agentName || "-"}</span>
+                    <span style={{ fontFamily: "DM Mono, monospace", fontSize: 12, fontWeight: 700, color: "#0f172a" }}>{fmtDuration(c.durationSec)}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: badge.bg, color: badge.fg }}>{badge.txt}</span>
+                  </div>
+                  {c.disposition && <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>Disposition: {c.disposition}</div>}
+                  {c.hasRecording && (
+                    <audio controls preload="none" src={c.recordingUrl} style={{ width: "100%", height: 34, marginTop: 8 }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* AI analysis */}
+          <div style={{ ...LABEL, marginTop: 22, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+            AI Call Analysis
+            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: "rgba(8,145,178,0.1)", color: TEAL }}>Whisper + Claude</span>
+          </div>
+
+          {loading && (
+            <div style={{ fontSize: 13, color: MUTED, padding: "16px", textAlign: "center", background: BG, borderRadius: 10 }}>
+              Transcribing recording and analyzing... this can take 10-30s.
+            </div>
+          )}
+
+          {!loading && resp?.error && (
+            <div style={{ fontSize: 13, color: DANGER, padding: "12px 14px", background: "rgba(239,68,68,0.07)", borderRadius: 10 }}>
+              {resp.error}
+            </div>
+          )}
+
+          {!loading && !resp?.error && resp?.analysis && (
+            <>
+              <div style={{ background: BG, borderRadius: 10, padding: "14px 16px" }}>
+                <AnalysisMarkdown text={resp.analysis} />
+              </div>
+              {resp.transcript && (
+                <div style={{ marginTop: 12 }}>
+                  <button onClick={() => setShowTranscript(s => !s)} style={{
+                    border: `1px solid ${BORDER}`, background: "#fff", borderRadius: 8,
+                    padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#334155",
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>{showTranscript ? "Hide" : "Show"} full transcript</button>
+                  {showTranscript && (
+                    <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.6, color: "#475569", whiteSpace: "pre-wrap", background: BG, borderRadius: 10, padding: "12px 14px", maxHeight: 260, overflowY: "auto" }}>
+                      {resp.transcript}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {!loading && !resp?.error && !resp?.analysis && resp?.note && (
+            <div style={{ fontSize: 13, color: MUTED, padding: "12px 14px", background: BG, borderRadius: 10 }}>{resp.note}</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

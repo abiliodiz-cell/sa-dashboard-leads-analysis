@@ -29,7 +29,9 @@ export interface EnrichedLead {
   deal_status: string;
   deal_value: number;
   was_called: boolean;
-  call_answered: boolean;
+  call_answered: boolean;          // effective call (>2min)
+  call_connected_short: boolean;   // connected but never reached 2min
+  longest_call_sec: number;        // longest call duration in seconds
   first_call_time: string | null;
   first_contact_time: string | null;
   minutes_to_first_call?: number;
@@ -141,6 +143,8 @@ export function fuseFromSheet(
       deal_value:            pd?.dealValue  || 0,
       was_called:            jc?.wasCalled          ?? false,
       call_answered:         jc?.callAnswered       ?? false,
+      call_connected_short:  jc?.callConnectedShort ?? false,
+      longest_call_sec:      jc?.longestCallSec     ?? 0,
       first_call_time:       jc?.firstCallTime      ?? null,
       first_contact_time:    jc?.firstContactTime   ?? null,
       minutes_to_first_call: jc?.minutesToFirstCall ?? undefined,
